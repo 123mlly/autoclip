@@ -38,6 +38,8 @@ const ProjectDetailPage: React.FC = () => {
     loading, 
     error,
     setCurrentProject,
+    setLoading,
+    setError,
     updateCollection,
     addCollection,
     deleteCollection,
@@ -100,17 +102,78 @@ const ProjectDetailPage: React.FC = () => {
   // }, [isConnected, id, syncSubscriptions])
 
   useEffect(() => {
-    if (id) {
-      // 只有当store中没有currentProject或者currentProject的id与当前id不匹配时才重新加载
-      if (!currentProject || currentProject.id !== id) {
-        loadProject()
-      }
-      loadProcessingStatus()
+    if (!id) return
+
+    // 切换项目时立刻清掉旧数据并进入 loading，避免短暂显示上一个项目
+    const { currentProject: existing } = useProjectStore.getState()
+    if (!existing || existing.id !== id) {
+      setLoading(true)
+      setCurrentProject(null)
+      setError(null)
+      setShowCreateCollection(false)
+      setShowCollectionDetail(false)
+      setSelectedCollection(null)
+      setSortBy('score')
     }
-  }, [id, currentProject])
+
+    let cancelled = false
+
+    const load = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const project = await projectApi.getProject(id)
+        if (cancelled) return
+
+        if (project.status === 'completed') {
+          try {
+            const [clips, collections] = await Promise.all([
+              projectApi.getClips(id),
+              projectApi.getCollections(id)
+            ])
+            if (cancelled) return
+
+            const projectWithData = {
+              ...project,
+              clips: clips || [],
+              collections: collections || []
+            }
+            setCurrentProject(projectWithData)
+
+            const { projects } = useProjectStore.getState()
+            useProjectStore.setState({
+              projects: projects.map(p => (p.id === id ? projectWithData : p))
+            })
+          } catch (err) {
+            console.error('Failed to load clips/collections:', err)
+            if (!cancelled) setCurrentProject(project)
+          }
+        } else {
+          setCurrentProject(project)
+        }
+      } catch (err) {
+        console.error('Failed to load project:', err)
+        if (!cancelled) {
+          setError('加载项目失败')
+          message.error('加载项目失败')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    load()
+    loadProcessingStatus()
+
+    return () => {
+      cancelled = true
+    }
+  }, [id])
 
   const loadProject = async () => {
     if (!id) return
+    setLoading(true)
+    setError(null)
     try {
       const project = await projectApi.getProject(id)
       
@@ -122,16 +185,12 @@ const ProjectDetailPage: React.FC = () => {
             projectApi.getCollections(id)
           ])
           
-          console.log('🎬 Loaded clips in ProjectDetailPage:', clips)
-          console.log('📚 Loaded collections in ProjectDetailPage:', collections)
-          
           const projectWithData = {
             ...project,
             clips: clips || [],
             collections: collections || []
           }
           
-          console.log('🎯 Final project with data:', projectWithData)
           setCurrentProject(projectWithData)
           
           // 同时更新projects数组，确保Store中的数据同步
@@ -150,7 +209,10 @@ const ProjectDetailPage: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to load project:', error)
+      setError('加载项目失败')
       message.error('加载项目失败')
+    } finally {
+      setLoading(false)
     }
   }
 

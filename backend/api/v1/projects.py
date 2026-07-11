@@ -904,42 +904,27 @@ async def get_project_clip(
 ):
     """Get a specific clip video file for a project."""
     try:
-        from pathlib import Path
-        import os
-        
-        # 构建视频文件路径 - 使用正确的项目目录路径
-        from ...core.path_utils import get_project_directory
-        project_dir = get_project_directory(project_id)
-        clips_dir = project_dir / "output" / "clips"
-        
-        # 确保路径存在
-        if not clips_dir.exists():
-            raise HTTPException(status_code=404, detail=f"Clips directory not found: {clips_dir}")
-        
-        # 查找对应的视频文件
-        # 首先尝试通过clip_id查找
-        video_files = list(clips_dir.glob(f"{clip_id}_*.mp4"))
-        
-        # 如果没找到，尝试查找所有mp4文件，然后通过数据库匹配
-        if not video_files:
-            from ...models.clip import Clip
-            clip = project_service.db.query(Clip).filter(Clip.id == clip_id).first()
-            if clip and clip.video_path:
-                video_file_path = Path(clip.video_path)
-                if video_file_path.exists():
-                    video_file = video_file_path
-                else:
-                    raise HTTPException(status_code=404, detail=f"Clip video file not found for clip_id: {clip_id}")
-            else:
-                raise HTTPException(status_code=404, detail=f"Clip not found in database: {clip_id}")
-        else:
-            video_file = video_files[0]
-        
-        # 检查文件是否存在
-        if not video_file.exists():
-            raise HTTPException(status_code=404, detail="Clip video file not found")
-        
-        # 返回视频流（inline 便于封面预览与播放，勿用 attachment）
+        from ...core.path_utils import resolve_clip_video_file
+        from ...models.clip import Clip
+
+        clip = project_service.db.query(Clip).filter(Clip.id == clip_id).first()
+        title = None
+        video_path = None
+        if clip:
+            if clip.project_id and clip.project_id != project_id:
+                raise HTTPException(status_code=403, detail="Clip does not belong to this project")
+            title = clip.title or getattr(clip, "generated_title", None)
+            video_path = clip.video_path
+
+        video_file = resolve_clip_video_file(
+            project_id=project_id,
+            clip_id=clip_id,
+            video_path=video_path,
+            title=title,
+        )
+        if not video_file or not video_file.exists():
+            raise HTTPException(status_code=404, detail=f"Clip video file not found for clip_id: {clip_id}")
+
         from fastapi.responses import FileResponse
         return FileResponse(
             path=str(video_file),

@@ -172,3 +172,73 @@ def validate_file_path(file_path: Path) -> bool:
     except Exception:
         return False
 
+
+def resolve_data_file_path(stored_path: Optional[str], project_id: Optional[str] = None) -> Optional[Path]:
+    """
+    兼容本机绝对路径与 Docker 挂载路径。
+
+    库里可能存着宿主机路径（如 /Users/.../autoclip/data/projects/...），
+    容器内实际在 /app/data/projects/...。将任意含 /data/ 的路径重映射到当前 data 目录。
+    """
+    if not stored_path:
+        return None
+
+    path = Path(stored_path)
+    if path.exists():
+        return path
+
+    parts = path.parts
+    if "data" in parts:
+        idx = parts.index("data")
+        relative_parts = parts[idx + 1 :]
+        if relative_parts:
+            candidate = get_data_directory().joinpath(*relative_parts)
+            if candidate.exists():
+                return candidate
+
+    if project_id and path.name:
+        project_dir = get_project_directory(project_id)
+        for sub in ("output/clips", "output/collections", "raw", "output/metadata"):
+            candidate = project_dir / sub / path.name
+            if candidate.exists():
+                return candidate
+
+    return None
+
+
+def resolve_clip_video_file(
+    project_id: str,
+    clip_id: str,
+    video_path: Optional[str] = None,
+    title: Optional[str] = None,
+) -> Optional[Path]:
+    """定位切片视频：支持 {clip_id}_*.mp4、序号_标题.mp4，以及宿主机/容器路径重映射。"""
+    clips_dir = get_project_directory(project_id) / "output" / "clips"
+
+    if clips_dir.exists():
+        by_id = list(clips_dir.glob(f"{clip_id}_*.mp4"))
+        if by_id:
+            return by_id[0]
+        exact = clips_dir / f"{clip_id}.mp4"
+        if exact.exists():
+            return exact
+
+    remapped = resolve_data_file_path(video_path, project_id=project_id)
+    if remapped and remapped.exists():
+        return remapped
+
+    if clips_dir.exists() and title:
+        mp4_files = list(clips_dir.glob("*.mp4"))
+        # 完整标题命中
+        for mp4 in mp4_files:
+            if title in mp4.stem:
+                return mp4
+        # 标题前缀关键词命中
+        keywords = [k for k in title.replace("：", " ").replace(":", " ").split() if len(k) >= 2][:4]
+        if keywords:
+            for mp4 in mp4_files:
+                if sum(1 for k in keywords if k in mp4.name) >= min(2, len(keywords)):
+                    return mp4
+
+    return None
+

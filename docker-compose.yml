@@ -15,7 +15,9 @@ services:
       retries: 5
 
   # 主应用：API + 前端静态资源（同源 :8000）
+  # 各服务共用同一镜像名，避免重复构建/导出
   autoclip:
+    image: autoclip:local
     build:
       context: .
       dockerfile: Dockerfile
@@ -46,9 +48,7 @@ services:
       start_period: 40s
 
   celery-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: autoclip:local
     container_name: autoclip-celery-worker
     restart: unless-stopped
     env_file:
@@ -75,9 +75,7 @@ services:
         condition: service_healthy
 
   celery-beat:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: autoclip:local
     container_name: autoclip-celery-beat
     restart: unless-stopped
     env_file:
@@ -101,9 +99,7 @@ services:
   # 可选监控：docker compose --profile monitoring up -d
   flower:
     profiles: ["monitoring"]
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: autoclip:local
     container_name: autoclip-flower
     restart: unless-stopped
     ports:

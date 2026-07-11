@@ -86,14 +86,14 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
                 generated_subtitle = generate_subtitle_for_video(
                     Path(video_path),
                     language="auto",
-                    model=model
+                    model=model,
+                    method="whisper_local",
                 )
                 srt_path = str(generated_subtitle)
                 logger.info(f"Whisper字幕生成成功: {srt_path}")
                 
             except Exception as e:
                 logger.error(f"Whisper字幕生成失败: {str(e)}")
-                # 字幕生成失败，使用空字幕文件
                 srt_path = None
         
         # 3. 更新项目状态为处理中
@@ -117,19 +117,16 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
                 else:
                     logger.error(f"Celery任务提交失败: {task_result['error']}")
                     project_service.update_project_status(project_id, "failed")
-                    self.update_state(state='FAILURE', meta={'error': task_result['error']})
-                    return
+                    raise RuntimeError(task_result['error'])
                     
             except Exception as e:
                 logger.error(f"启动项目 {project_id} 处理失败: {str(e)}")
                 project_service.update_project_status(project_id, "failed")
-                self.update_state(state='FAILURE', meta={'error': str(e)})
-                return
+                raise
         else:
             logger.error(f"字幕文件不存在: {srt_path}")
             project_service.update_project_status(project_id, "failed")
-            self.update_state(state='FAILURE', meta={'error': '字幕文件不存在'})
-            return
+            raise FileNotFoundError(f"字幕文件不存在: {srt_path}")
         
         logger.info(f"导入任务完成: {project_id}")
         return {
@@ -146,14 +143,13 @@ def process_import_task(self, project_id: str, video_path: str, srt_file_path: O
             db = next(get_db())
             project_service = ProjectService(db)
             project_service.update_project_status(project_id, "failed")
-        except:
+        except Exception:
             pass
         
-        self.update_state(state='FAILURE', meta={'error': str(e)})
         raise
     finally:
         try:
             db.close()
-        except:
+        except Exception:
             pass
 

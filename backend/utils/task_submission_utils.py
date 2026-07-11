@@ -38,11 +38,16 @@ def submit_video_pipeline_task(project_id: str, input_video_path: str, input_srt
             logger.info(f"视频流水线任务已提交: {celery_task.id}")
             logger.info(f"任务状态: {celery_task.state}")
             
-            # 检查任务是否真的提交到队列
-            import redis
-            r = redis.Redis(host='localhost', port=6379, db=0)
-            queue_length = r.llen('processing')
-            logger.info(f"Redis队列长度: {queue_length}")
+            # 可选：检查队列长度（失败不影响任务已提交的结果）
+            try:
+                import os
+                import redis
+                redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+                r = redis.Redis.from_url(redis_url)
+                queue_length = r.llen('processing')
+                logger.info(f"Redis队列长度: {queue_length}")
+            except Exception as e:
+                logger.warning(f"读取Redis队列长度失败（可忽略）: {e}")
             
         except Exception as e:
             logger.error(f"任务提交过程中出现异常: {e}")

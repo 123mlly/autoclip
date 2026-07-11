@@ -201,11 +201,21 @@ async def download_clip_file(
         if not clip:
             raise HTTPException(status_code=404, detail="切片不存在")
         
-        if not clip.video_path:
+        if not clip.video_path and not clip.project_id:
             raise HTTPException(status_code=404, detail="切片文件不存在")
-        
-        file_path = Path(clip.video_path)
-        if not file_path.exists():
+
+        from ...core.path_utils import resolve_clip_video_file, resolve_data_file_path
+        file_path = None
+        if clip.project_id:
+            file_path = resolve_clip_video_file(
+                project_id=clip.project_id,
+                clip_id=clip_id,
+                video_path=clip.video_path,
+                title=clip.title or getattr(clip, "generated_title", None),
+            )
+        if not file_path:
+            file_path = resolve_data_file_path(clip.video_path, project_id=clip.project_id)
+        if not file_path or not file_path.exists():
             raise HTTPException(status_code=404, detail="切片文件不存在")
         
         return FileResponse(
@@ -248,11 +258,27 @@ async def get_project_clip_video(
             raise HTTPException(status_code=403, detail="切片不属于该项目")
         
         if not clip.video_path:
-            raise HTTPException(status_code=404, detail="切片文件不存在")
-        
-        file_path = Path(clip.video_path)
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail="切片文件不存在")
+            # 即使库里没有路径，也尝试按 clip_id / 标题定位
+            from ...core.path_utils import resolve_clip_video_file
+            resolved = resolve_clip_video_file(
+                project_id=project_id,
+                clip_id=clip_id,
+                video_path=None,
+                title=clip.title or getattr(clip, "generated_title", None),
+            )
+            if not resolved:
+                raise HTTPException(status_code=404, detail="切片文件不存在")
+            file_path = resolved
+        else:
+            from ...core.path_utils import resolve_clip_video_file
+            file_path = resolve_clip_video_file(
+                project_id=project_id,
+                clip_id=clip_id,
+                video_path=clip.video_path,
+                title=clip.title or getattr(clip, "generated_title", None),
+            )
+            if not file_path:
+                raise HTTPException(status_code=404, detail="切片文件不存在")
         
         # 返回视频文件，支持在线播放
         return FileResponse(
@@ -290,9 +316,13 @@ async def download_collection_file(
         
         if not collection.export_path:
             raise HTTPException(status_code=404, detail="合集文件不存在")
-        
-        file_path = Path(collection.export_path)
-        if not file_path.exists():
+
+        from ...core.path_utils import resolve_data_file_path
+        file_path = resolve_data_file_path(
+            collection.export_path,
+            project_id=collection.project_id,
+        )
+        if not file_path or not file_path.exists():
             raise HTTPException(status_code=404, detail="合集文件不存在")
         
         return FileResponse(

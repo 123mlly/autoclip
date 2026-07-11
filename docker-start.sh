@@ -134,12 +134,12 @@ start_services() {
     
     # 选择启动模式
     if [[ "${1:-}" == "dev" ]]; then
-        log_info "启动开发环境..."
-        docker compose -f docker-compose.dev.yml up -d
+        log_info "启动开发环境（构建并启动）..."
+        docker compose -f docker-compose.dev.yml up -d --build
         COMPOSE_FILE="docker-compose.dev.yml"
     else
-        log_info "启动生产环境..."
-        docker compose up -d
+        log_info "启动生产环境（重新构建前端静态资源并启动）..."
+        docker compose up -d --build
         COMPOSE_FILE="docker-compose.yml"
     fi
     
@@ -147,8 +147,10 @@ start_services() {
     log_info "等待服务启动..."
     sleep 10
     
-    # 检查服务状态
-    if docker compose -f "$COMPOSE_FILE" ps | grep -q "Up"; then
+    # 检查服务状态（兼容 Docker Compose 新版状态文案）
+    local ps_out
+    ps_out="$(docker compose -f "$COMPOSE_FILE" ps 2>/dev/null || true)"
+    if echo "$ps_out" | grep -qiE 'up|running|healthy'; then
         log_success "服务启动成功"
     else
         log_error "服务启动失败"

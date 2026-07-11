@@ -325,7 +325,8 @@ async def process_download_task(task_id: str, request: BilibiliDownloadRequest, 
                 generated_subtitle = generate_subtitle_for_video(
                     video_file_path,
                     language=language,
-                    model=model
+                    model=model,
+                    method="whisper_local",
                 )
                 subtitle_path = str(generated_subtitle)
                 logger.info(f"Whisper字幕生成成功: {subtitle_path}")

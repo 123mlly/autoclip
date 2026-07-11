@@ -102,18 +102,21 @@ def health_check(self) -> Dict[str, Any]:
         
         # 检查数据库连接
         try:
+            from sqlalchemy import text
             db = SessionLocal()
-            db.execute("SELECT 1")
+            db.execute(text("SELECT 1"))
             db.close()
             health_status['checks']['database'] = {'status': 'healthy', 'message': '数据库连接正常'}
         except Exception as e:
             health_status['checks']['database'] = {'status': 'unhealthy', 'message': f'数据库连接失败: {e}'}
             health_status['status'] = 'unhealthy'
         
-        # 检查Redis连接
+        # 检查Redis连接（本地默认 localhost，Docker 通过 REDIS_URL 覆盖）
         try:
+            import os
             import redis
-            r = redis.Redis.from_url('redis://localhost:6379/0')
+            redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+            r = redis.Redis.from_url(redis_url)
             r.ping()
             health_status['checks']['redis'] = {'status': 'healthy', 'message': 'Redis连接正常'}
         except Exception as e:

@@ -118,8 +118,10 @@ class EnhancedProgressService:
     def _init_redis(self):
         """初始化Redis连接"""
         try:
+            import os
+            redis_url = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
             self.redis_client = redis.Redis.from_url(
-                "redis://127.0.0.1:6379/0", 
+                redis_url,
                 decode_responses=True,
                 socket_timeout=5,
                 socket_connect_timeout=5

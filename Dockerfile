@@ -1,12 +1,19 @@
 # AutoClip Dockerfile
 # 多阶段构建：前端静态资源 + 后端 API（同源 :8000）
 
+ARG DEBIAN_MIRROR=mirrors.aliyun.com
+
 # 第一阶段：构建前端
 FROM node:18-slim AS frontend-builder
 
+ARG DEBIAN_MIRROR=mirrors.aliyun.com
 WORKDIR /app/frontend
 
-RUN apt-get update && apt-get install -y \
+RUN sed -i "s/deb.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
+    && sed -i "s/security.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
+    && sed -i "s/deb.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list 2>/dev/null || true \
+    && sed -i "s/security.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list 2>/dev/null || true \
+    && apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     make \
     g++ \
@@ -18,34 +25,48 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-# 第二阶段：安装 Python 依赖
-FROM python:3.9-slim AS backend-builder
+# 第二阶段：安装 Python 依赖（不装 ffmpeg，减小构建体积与耗时）
+FROM python:3.10-slim AS backend-builder
 
+ARG DEBIAN_MIRROR=mirrors.aliyun.com
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PIP_NO_CACHE_DIR=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ENV PIP_TRUSTED_HOST=mirrors.aliyun.com
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+RUN sed -i "s/deb.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
+    && sed -i "s/security.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
+    && sed -i "s/deb.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list 2>/dev/null || true \
+    && sed -i "s/security.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list 2>/dev/null || true \
+    && apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    curl \
-    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# 先装轻量依赖，再单独装 whisper（层缓存：改业务依赖时不必重下 torch）
+RUN grep -v '^openai-whisper' requirements.txt > /tmp/requirements.base.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.base.txt \
+    && pip install --no-cache-dir openai-whisper \
+    && rm -rf /tmp/requirements.base.txt
 
-# 第三阶段：运行镜像
-FROM python:3.9-slim
+# 第三阶段：运行镜像（仅运行时需要的系统包）
+FROM python:3.10-slim
 
+ARG DEBIAN_MIRROR=mirrors.aliyun.com
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONPATH=/app
 
-# 使用 root 运行，避免挂载 ./data 时 UID 不匹配导致写失败（本地一键部署场景）
-RUN apt-get update && apt-get install -y \
+# ffmpeg 只装一次；--no-install-recommends 避免拉 mesa/gtk 等可选依赖
+RUN sed -i "s/deb.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
+    && sed -i "s/security.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
+    && sed -i "s/deb.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list 2>/dev/null || true \
+    && sed -i "s/security.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list 2>/dev/null || true \
+    && apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     && rm -rf /var/lib/apt/lists/* \
@@ -53,7 +74,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY --from=backend-builder /usr/local/lib/python3.9/site-packages /usr/local/lib/python3.9/site-packages
+COPY --from=backend-builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
 COPY --from=backend-builder /usr/local/bin /usr/local/bin
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
