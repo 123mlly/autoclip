@@ -53,7 +53,7 @@ AI-powered long-form video clipping: import from **Bilibili / YouTube links** or
 
 ### Option A: Docker (recommended)
 
-Best for most users: one command starts Redis, API, UI, and workers.
+Best for most users: one command starts Redis, the **frontend**, API, and Celery workers.
 
 **1. Clone**
 
@@ -82,12 +82,15 @@ API_DASHSCOPE_API_KEY=sk-your-key
 ./docker-start.sh
 ```
 
-The first run builds images and may take a few minutes. Then open:
+The first run builds images (including the frontend bundle) and may take a few minutes. Then open:
 
 | URL | What |
 |-----|------|
-| http://localhost:8000 | App (UI + API on the same port) |
+| http://localhost:8000 | **Frontend UI** (served by the API on the same origin; no separate :3000) |
+| http://localhost:8000/api/v1 | Backend API |
 | http://localhost:8000/docs | API docs |
+
+> Note: `./docker-start.sh` already includes the frontend. The image runs `npm run build`, then serves the web UI and API together on port **8000**. Only `./docker-start.sh dev` starts a separate Vite server on **3000**.
 
 **4. Useful commands**
 
