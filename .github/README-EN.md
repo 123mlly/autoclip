@@ -41,42 +41,74 @@ AI-powered long-form video clipping: import from **Bilibili / YouTube links** or
 
 ### Requirements
 
-- Docker 20.10+ and Docker Compose 2.0+ (recommended), **or**
-- Local: Python 3.9+, Node.js 18+, Redis, FFmpeg
+**Option A (Docker) only needs:**
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running (includes Compose)
+
+**Option B (local) needs:**
+
+- Python 3.9+, Node.js 18+, Redis, FFmpeg
+
+---
 
 ### Option A: Docker (recommended)
+
+Best for most users: one command starts Redis, API, UI, and workers.
+
+**1. Clone**
 
 ```bash
 git clone https://github.com/123mlly/autoclip.git
 cd autoclip
+```
 
+**2. Set API key (required for AI)**
+
+```bash
 cp env.example .env
-# Set at least API_DASHSCOPE_API_KEY
+```
 
+Edit `.env` and set your DashScope / Qwen key:
+
+```bash
+API_DASHSCOPE_API_KEY=sk-your-key
+```
+
+> The UI can start without a key, but AI clipping will not work. You can also set the key later in Settings.
+
+**3. Start**
+
+```bash
 ./docker-start.sh
 ```
 
-- App / API: http://localhost:8000  
-- API docs: http://localhost:8000/docs  
+The first run builds images and may take a few minutes. Then open:
 
-Dev mode (hot reload, frontend on :3000):
+| URL | What |
+|-----|------|
+| http://localhost:8000 | App (UI + API on the same port) |
+| http://localhost:8000/docs | API docs |
+
+**4. Useful commands**
+
+```bash
+./docker-status.sh          # status
+./docker-stop.sh            # stop everything
+docker compose logs -f      # logs
+```
+
+**Dev mode (hot reload)**
+
+For day-to-day use, prefer the production start above. To edit source with hot reload:
 
 ```bash
 ./docker-start.sh dev
 ```
 
-Optional Flower:
+- Frontend: http://localhost:3000  
+- Backend: http://localhost:8000  
 
-```bash
-docker compose --profile monitoring up -d
-# http://localhost:5555
-```
-
-Stop:
-
-```bash
-./docker-stop.sh
-```
+---
 
 ### Option B: Local
 
