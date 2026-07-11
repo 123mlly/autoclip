@@ -49,34 +49,34 @@ jobs:
     - name: Check language consistency (Warning Only)
       run: |
         echo "🔍 Checking language consistency (warnings only)..."
-        if ! grep -q "语言.*English.*中文" README.md; then
+        if ! grep -Eq '语言.*(English|中文)' README.md; then
           echo "⚠️  Warning: Language switcher may be missing in Chinese README"
         else
           echo "✅ Language switcher found in Chinese README"
         fi
         
-        if ! grep -q "Language.*English.*中文" README-EN.md; then
+        if ! grep -Eq 'Language.*(English|中文)' README-EN.md; then
           echo "⚠️  Warning: Language switcher may be missing in English README"
         else
           echo "✅ Language switcher found in English README"
         fi
         echo "✅ Language consistency check completed (warnings only, no failure)"
         
-    - name: Validate contact information (Warning Only)
+    - name: Validate support links (Warning Only)
       run: |
-        echo "🔍 Checking contact information (warnings only)..."
-        if ! grep -Eq '([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})|(联系|Contact).*(表单|Issue|飞书|微信|QQ|Discord|Telegram|Link|链接)' README.md; then
-          echo "⚠️  Warning: Contact information may be missing in Chinese README"
+        echo "🔍 Checking support links (warnings only)..."
+        if ! grep -Eq 'github.com/.+/autoclip/(issues|discussions)' README.md; then
+          echo "⚠️  Warning: GitHub Issues/Discussions link may be missing in Chinese README"
         else
-          echo "✅ Contact information found in Chinese README"
+          echo "✅ Support links found in Chinese README"
         fi
         
-        if ! grep -Eq '([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})|(联系|Contact).*(表单|Issue|飞书|微信|QQ|Discord|Telegram|Link|链接)' README-EN.md; then
-          echo "⚠️  Warning: Contact information may be missing in English README"
+        if ! grep -Eq 'github.com/.+/autoclip/(issues|discussions)' README-EN.md; then
+          echo "⚠️  Warning: GitHub Issues/Discussions link may be missing in English README"
         else
-          echo "✅ Contact information found in English README"
+          echo "✅ Support links found in English README"
         fi
-        echo "✅ Contact information check completed (warnings only, no failure)"
+        echo "✅ Support link check completed (warnings only, no failure)"
         
     - name: Check Docker support (Warning Only)
       run: |
@@ -108,11 +108,13 @@ jobs:
         echo "## Status" >> docs/sync-report.md
         echo "✅ All documentation files are processed" >> docs/sync-report.md
         echo "ℹ️  Checks are now in warning mode - no failures will block commits" >> docs/sync-report.md
+        echo "ℹ️  Support links point to GitHub Issues/Discussions (no personal contact required)" >> docs/sync-report.md
         echo "ℹ️  Please review any warnings above for documentation improvements" >> docs/sync-report.md
         echo "" >> docs/sync-report.md
         echo "## Workflow Changes" >> docs/sync-report.md
         echo "- All README checks are now non-blocking (warnings only)" >> docs/sync-report.md
         echo "- Link checks, linting, and content validation will not fail the build" >> docs/sync-report.md
+        echo "- Contact/email/QQ checks replaced with GitHub support link checks" >> docs/sync-report.md
         echo "- Warnings are provided for manual review and improvement" >> docs/sync-report.md
         echo "" >> docs/sync-report.md
         echo "Last updated: $(date)" >> docs/sync-report.md
