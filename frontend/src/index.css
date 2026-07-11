@@ -1,0 +1,433 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+
+:root {
+  --bg: #eef2f5;
+  --bg-accent: #e4ebf0;
+  --surface: #ffffff;
+  --surface-2: #f7f9fb;
+  --ink: #14181f;
+  --ink-soft: #3d4654;
+  --muted: #6b7585;
+  --border: #d5dde6;
+  --border-strong: #b8c4d1;
+  --accent: #0e7c66;
+  --accent-hover: #0a6352;
+  --accent-soft: #d7f0ea;
+  --accent-ink: #085445;
+  --danger: #d64545;
+  --warning: #c9851a;
+  --success: #1f8a5b;
+  --shadow: 0 10px 30px rgba(20, 24, 31, 0.06);
+  --shadow-sm: 0 2px 8px rgba(20, 24, 31, 0.04);
+  --radius: 14px;
+  --radius-sm: 10px;
+  --font-display: 'Outfit', 'PingFang SC', 'Helvetica Neue', sans-serif;
+  --font-body: 'Plus Jakarta Sans', 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(14, 124, 102, 0.08), transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, rgba(20, 24, 31, 0.05), transparent 50%),
+    var(--bg);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+  background: transparent;
+}
+
+.ant-layout {
+  min-height: 100vh;
+  background: transparent !important;
+}
+
+.ant-layout-header {
+  background: rgba(255, 255, 255, 0.82) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.ant-layout-content {
+  background: transparent !important;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-accent);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+.collections-scroll-container {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) var(--bg-accent);
+}
+
+/* Surfaces */
+.panel,
+.studio-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.brand-mark {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.brand-mark .brand-wordmark span {
+  color: var(--accent);
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--ink) !important;
+}
+
+.tab-switch {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--bg-accent);
+  border: 1px solid var(--border);
+}
+
+.tab-switch button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  padding: 12px 20px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.tab-switch button.active {
+  background: var(--surface);
+  color: var(--accent-ink);
+  box-shadow: var(--shadow-sm);
+}
+
+.count-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid rgba(14, 124, 102, 0.18);
+}
+
+/* Ant Design overrides — light studio */
+.ant-card {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.ant-card-meta-title,
+.ant-typography,
+.ant-typography h1,
+.ant-typography h2,
+.ant-typography h3,
+.ant-typography h4,
+.ant-typography h5 {
+  color: var(--ink) !important;
+  font-family: var(--font-display);
+}
+
+.ant-typography-caption,
+.ant-typography.ant-typography-secondary {
+  color: var(--muted) !important;
+  font-family: var(--font-body) !important;
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-outlined,
+.ant-input-textarea textarea,
+textarea.ant-input {
+  background: var(--surface-2) !important;
+  border-color: var(--border) !important;
+  color: var(--ink) !important;
+  border-radius: var(--radius-sm) !important;
+}
+
+.ant-input:focus,
+.ant-input-affix-wrapper-focused,
+.ant-input-outlined:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px rgba(14, 124, 102, 0.15) !important;
+}
+
+.ant-input::placeholder,
+.ant-input-affix-wrapper .ant-input::placeholder,
+.ant-input-textarea textarea::placeholder {
+  color: var(--muted) !important;
+}
+
+.ant-input-data-count,
+.ant-input-textarea-show-count::after,
+.ant-input-show-count-suffix,
+.ant-input-textarea-show-count .ant-input-data-count {
+  color: var(--muted) !important;
+}
+
+.ant-select {
+  color: var(--ink) !important;
+}
+
+.ant-select-selector {
+  background: var(--surface-2) !important;
+  border-color: var(--border) !important;
+  color: var(--ink) !important;
+  border-radius: var(--radius-sm) !important;
+}
+
+.ant-select-selection-item {
+  color: var(--ink) !important;
+}
+
+.ant-select-selection-placeholder {
+  color: var(--muted) !important;
+}
+
+.ant-select-arrow,
+.ant-select-clear {
+  color: var(--muted) !important;
+}
+
+.ant-select-focused .ant-select-selector {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px rgba(14, 124, 102, 0.15) !important;
+}
+
+.ant-select-dropdown {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: var(--shadow) !important;
+}
+
+.ant-select-item {
+  color: var(--ink) !important;
+}
+
+.ant-select-item-option-active {
+  background: var(--bg-accent) !important;
+}
+
+.ant-select-item-option-selected {
+  background: var(--accent-soft) !important;
+  color: var(--accent-ink) !important;
+  font-weight: 600;
+}
+
+.ant-btn {
+  border-radius: var(--radius-sm) !important;
+  font-weight: 600;
+  font-family: var(--font-body);
+  box-shadow: none !important;
+}
+
+.ant-btn-primary {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+}
+
+.ant-btn-primary:hover {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+}
+
+.ant-btn-default {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+  color: var(--ink) !important;
+}
+
+.ant-btn-default:hover {
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+
+.ant-btn-text {
+  color: var(--ink-soft) !important;
+}
+
+.ant-btn-text:hover {
+  background: var(--bg-accent) !important;
+  color: var(--ink) !important;
+}
+
+.ant-form-item-label > label {
+  color: var(--ink) !important;
+  font-weight: 600;
+}
+
+.ant-form-item-extra,
+.ant-form-item-explain {
+  color: var(--muted) !important;
+}
+
+.ant-form-item-explain-error {
+  color: var(--danger) !important;
+}
+
+.ant-modal-content {
+  background: var(--surface) !important;
+  color: var(--ink) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--shadow) !important;
+}
+
+.ant-modal-header {
+  background: var(--surface) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.ant-modal-title {
+  color: var(--ink) !important;
+  font-family: var(--font-display) !important;
+}
+
+.ant-modal-close {
+  color: var(--muted) !important;
+}
+
+.ant-modal-body {
+  color: var(--ink) !important;
+}
+
+.ant-divider {
+  border-color: var(--border) !important;
+}
+
+.ant-alert {
+  border-radius: var(--radius-sm) !important;
+}
+
+.ant-alert-info {
+  background: var(--accent-soft) !important;
+  border-color: rgba(14, 124, 102, 0.25) !important;
+}
+
+.ant-alert-info .ant-alert-message,
+.ant-alert-info .ant-alert-description {
+  color: var(--accent-ink) !important;
+}
+
+.ant-alert-info .ant-alert-icon {
+  color: var(--accent) !important;
+}
+
+.ant-alert-success {
+  background: #eef8f4 !important;
+  border-color: rgba(31, 138, 91, 0.22) !important;
+}
+
+.ant-alert-success .ant-alert-message,
+.ant-alert-success .ant-alert-description {
+  color: #146c45 !important;
+}
+
+.ant-alert-success .ant-alert-icon {
+  color: var(--success) !important;
+}
+
+.ant-empty-description {
+  color: var(--muted) !important;
+}
+
+.ant-spin-dot-item {
+  background: var(--accent) !important;
+}
+
+.ant-message-notice-content {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--ink) !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: var(--shadow);
+}
+
+.ant-tag {
+  border-radius: 6px !important;
+  border: none !important;
+  font-weight: 600;
+}
+
+.ant-tabs-tab {
+  color: var(--muted) !important;
+  font-weight: 600 !important;
+}
+
+.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--accent) !important;
+}
+
+.ant-tabs-ink-bar {
+  background: var(--accent) !important;
+}
+
+.ant-progress-bg {
+  background: var(--accent) !important;
+}
+
+.upload-publish-modal .ant-form-item-label > label,
+.upload-publish-modal .ant-typography {
+  color: var(--ink) !important;
+}
+
+.upload-publish-modal .ant-form-item-extra {
+  color: var(--muted) !important;
+}
+
+.upload-publish-modal .form-extra-reminder {
+  color: var(--accent) !important;
+  font-weight: 500;
+}
+
+/* Legacy dark class remaps for gradual migration */
+.glass-effect {
+  backdrop-filter: blur(16px);
+  background: rgba(255, 255, 255, 0.82) !important;
+}

@@ -1,0 +1,337 @@
+/* Settings — Cutting Room light studio */
+
+.settings-page {
+  padding: 24px;
+  background: transparent;
+  min-height: 100vh;
+}
+
+.settings-container {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.settings-title {
+  color: var(--ink) !important;
+  margin-bottom: 32px !important;
+  font-family: var(--font-display) !important;
+  font-weight: 700;
+}
+
+.settings-title .anticon {
+  color: var(--accent);
+  margin-right: 12px;
+}
+
+.settings-tabs {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.settings-tabs .ant-tabs-nav {
+  margin-bottom: 24px !important;
+}
+
+.settings-tabs .ant-tabs-nav::before {
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.settings-tabs .ant-tabs-tab {
+  color: var(--muted) !important;
+  font-weight: 600;
+  padding: 12px 24px !important;
+  border-radius: 8px 8px 0 0 !important;
+  transition: all 0.2s ease;
+}
+
+.settings-tabs .ant-tabs-tab:hover {
+  color: var(--ink) !important;
+  background: var(--bg-accent) !important;
+}
+
+.settings-tabs .ant-tabs-tab.ant-tabs-tab-active {
+  color: var(--accent) !important;
+  background: transparent !important;
+}
+
+.settings-tabs .ant-tabs-tab .anticon {
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+.settings-tabs .ant-tabs-content-holder,
+.settings-tabs .ant-tabs-tabpane {
+  padding: 0;
+}
+
+.settings-card {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  margin-bottom: 24px !important;
+  box-shadow: var(--shadow-sm);
+}
+
+.settings-card .ant-card-head {
+  background: var(--surface) !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-radius: var(--radius) var(--radius) 0 0 !important;
+}
+
+.settings-card .ant-card-head-title {
+  color: var(--ink) !important;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.settings-card .ant-card-body {
+  padding: 24px;
+  background: var(--surface) !important;
+  border-radius: 0 0 var(--radius) var(--radius) !important;
+}
+
+.settings-alert {
+  margin-bottom: 24px !important;
+  border-radius: 12px !important;
+  border: 1px solid var(--border) !important;
+}
+
+.settings-alert .ant-alert-message {
+  color: var(--ink) !important;
+  font-weight: 600;
+}
+
+.settings-alert .ant-alert-description {
+  color: var(--ink-soft) !important;
+  line-height: 1.6;
+}
+
+.settings-form {
+  margin-top: 24px;
+}
+
+.form-item {
+  margin-bottom: 20px !important;
+}
+
+.form-item .ant-form-item-label > label {
+  color: var(--ink) !important;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.settings-input {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--ink) !important;
+  font-size: 14px;
+  height: 40px;
+  transition: all 0.2s ease;
+}
+
+.settings-input:hover {
+  border-color: var(--border-strong) !important;
+}
+
+.settings-input:focus,
+.settings-input:focus-within {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px rgba(14, 124, 102, 0.15) !important;
+}
+
+.settings-input::placeholder {
+  color: var(--muted) !important;
+}
+
+.settings-input .ant-input-prefix {
+  color: var(--accent) !important;
+  margin-right: 8px;
+}
+
+.settings-input .ant-input-group-addon {
+  background: var(--bg-accent) !important;
+  border-color: var(--border) !important;
+  color: var(--muted) !important;
+  font-size: 12px;
+}
+
+.test-button {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--ink) !important;
+  border-radius: var(--radius-sm) !important;
+  height: 40px;
+  padding: 0 16px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.test-button:hover {
+  background: var(--bg-accent) !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+
+.test-button .anticon {
+  color: var(--accent) !important;
+  margin-right: 8px;
+}
+
+.save-button {
+  background: var(--accent) !important;
+  border: none !important;
+  color: #ffffff !important;
+  border-radius: var(--radius-sm) !important;
+  height: 48px;
+  padding: 0 32px;
+  font-weight: 600;
+  font-size: 16px;
+  box-shadow: none !important;
+  transition: background 0.2s ease;
+}
+
+.save-button:hover {
+  background: var(--accent-hover) !important;
+}
+
+.save-button .anticon {
+  margin-right: 8px;
+}
+
+.settings-divider {
+  border-color: var(--border) !important;
+  margin: 32px 0 !important;
+}
+
+.settings-divider .ant-divider-inner-text {
+  color: var(--muted) !important;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.settings-page .section-title {
+  color: var(--ink) !important;
+  font-family: var(--font-display);
+  font-weight: 700;
+  margin-bottom: 24px !important;
+  font-size: 18px;
+}
+
+.instructions-space {
+  width: 100%;
+}
+
+.instruction-item {
+  padding: 16px;
+  background: var(--surface-2);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
+}
+
+.instruction-item:hover {
+  background: var(--bg-accent);
+  border-color: var(--border-strong);
+}
+
+.instruction-title {
+  color: var(--ink) !important;
+  font-weight: 600;
+  margin-bottom: 12px !important;
+  display: flex;
+  align-items: center;
+}
+
+.instruction-title .anticon {
+  color: var(--accent);
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+.instruction-text {
+  color: var(--ink-soft) !important;
+  line-height: 1.6;
+  margin-bottom: 0 !important;
+  font-size: 14px;
+}
+
+.instruction-text strong {
+  color: var(--accent) !important;
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .settings-page {
+    padding: 16px;
+  }
+
+  .settings-container {
+    max-width: 100%;
+  }
+
+  .settings-card .ant-card-body {
+    padding: 16px;
+  }
+
+  .form-item {
+    margin-bottom: 16px !important;
+  }
+
+  .save-button {
+    width: 100%;
+    height: 44px;
+  }
+
+  .settings-tabs {
+    padding: 12px;
+  }
+
+  .settings-tabs .ant-tabs-tab {
+    padding: 8px 16px !important;
+  }
+}
+
+.settings-input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.settings-input[type="number"]::-webkit-outer-spin-button,
+.settings-input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.settings-input.ant-input-password {
+  padding-right: 40px;
+}
+
+.settings-input.ant-input-password .ant-input-suffix {
+  color: var(--muted);
+}
+
+.settings-input.ant-input-password .ant-input-suffix:hover {
+  color: var(--accent);
+}
+
+.form-item .ant-form-item-explain-error {
+  color: var(--danger) !important;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.test-button.ant-btn-loading,
+.save-button.ant-btn-loading {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.settings-card:hover {
+  border-color: var(--border-strong) !important;
+  box-shadow: var(--shadow);
+}

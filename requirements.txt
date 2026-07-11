@@ -1,0 +1,34 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+alembic
+celery[redis]
+redis
+pydantic
+pydantic-settings
+python-multipart
+websockets
+requests
+aiohttp
+aiofiles
+python-jose[cryptography]
+passlib[bcrypt]
+pytest
+pytest-cov
+pytest-mock
+cryptography
+dashscope
+openai
+pytz
+google-generativeai
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+# bilitool>=0.1.3  # 已移除，改用直接API调用
+qrcode[pil]
+yt-dlp[default]>=2024.12.13
+# bcut-asr 将通过自动安装脚本安装
+# 如果需要手动安装，请运行: python scripts/install_bcut_asr.py
+pysrt
+psutil
+flower

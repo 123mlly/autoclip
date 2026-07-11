@@ -1,0 +1,60 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: autoclip-redis-dev
+    ports:
+      - "6379:6379"
+
+  autoclip-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: autoclip-app-dev
+    ports:
+      - "8000:8000"
+      - "3000:3000"
+    volumes:
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend
+      - ./data:/app/data
+      - /app/venv
+    depends_on:
+      - redis
+    # 核心修改：sh 环境下使用 . 激活虚拟环境
+    command: >
+      sh -c "
+        . venv/bin/activate &&
+        python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload &
+        cd frontend &&
+        if [ ! -d node_modules ]; then npm install && npm install @rollup/rollup-linux-x64-gnu; fi &&
+        npx vite --host 0.0.0.0 --port 3000 &
+        wait
+      "
+
+  celery-worker-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: autoclip-celery-worker-dev
+    volumes:
+      - ./backend:/app/backend
+      - ./data:/app/data        # 建议加上数据目录
+      - ./logs:/app/logs        # 建议加上日志目录
+      - ./uploads:/app/uploads  # 建议加上上传目录
+      - /app/venv
+    # --- 添加下面这部分 ---
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite:///./data/autoclip.db
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+    # -----------------------
+    depends_on:
+      - redis
+      - autoclip-dev
+    command: >
+      sh -c "
+        . venv/bin/activate &&
+        celery -A backend.core.celery_app worker --loglevel=debug
+      "

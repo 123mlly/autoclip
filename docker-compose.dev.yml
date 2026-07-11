@@ -1,0 +1,89 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: autoclip-redis-dev
+    ports:
+      - "6379:6379"
+    environment:
+      - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  autoclip-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: autoclip-app-dev
+    ports:
+      - "8000:8000"
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+      - /app/venv
+      - /app/frontend/node_modules
+    environment:
+      - TZ=Asia/Shanghai
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DATABASE_URL=sqlite:///./data/autoclip.db
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "
+        . venv/bin/activate &&
+        python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload &
+        cd frontend &&
+        if [ ! -d node_modules/.bin ]; then npm install && npm install @rollup/rollup-linux-x64-gnu; fi &&
+        npx vite --host 0.0.0.0 --port 3000 &
+        wait
+      "
+
+  celery-worker-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: autoclip-celery-worker-dev
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app/backend
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+      - /app/venv
+    environment:
+      - TZ=Asia/Shanghai
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - DATABASE_URL=sqlite:///./data/autoclip.db
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+    depends_on:
+      redis:
+        condition: service_healthy
+      autoclip-dev:
+        condition: service_started
+    command: >
+      sh -c "
+        . venv/bin/activate &&
+        celery -A backend.core.celery_app worker
+        --loglevel=debug
+        --concurrency=2
+        -Q processing,upload,notification,maintenance,video,celery
+      "

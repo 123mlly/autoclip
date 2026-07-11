@@ -1,0 +1,38 @@
+.clip-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+}
+
+.clip-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow) !important;
+}
+
+.clip-card:hover .ant-card-body {
+  background: var(--surface-2);
+}
+
+.video-overlay {
+  transition: all 0.2s ease;
+  backdrop-filter: blur(2px);
+}
+
+.clip-card:hover .video-overlay {
+  opacity: 1 !important;
+  background: rgba(20, 24, 31, 0.45) !important;
+}
+
+.video-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.clip-card:hover .video-thumbnail {
+  transform: scale(1.03);
+}
+
+.clip-card .ant-btn-primary:hover {
+  background: var(--accent-hover) !important;
+}

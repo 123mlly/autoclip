@@ -1,0 +1,39 @@
+FROM python:3.9-slim
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONPATH=/app
+
+WORKDIR /app
+
+# 1. 安装系统依赖
+RUN cp /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/debian.sources.bak \
+    && sed -i "s|deb.debian.org|mirrors.aliyun.com|g" /etc/apt/sources.list.d/debian.sources \
+    && sed -i "s|security.debian.org|mirrors.aliyun.com|g" /etc/apt/sources.list.d/debian.sources \
+    && apt-get clean \
+    && apt-get update \
+    && apt-get install -y build-essential curl ffmpeg git \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. 安装 Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && apt-get install -y nodejs
+
+# 3. 复制 Python 依赖
+COPY requirements.txt ./
+RUN python3 -m venv venv
+# 使用 . 代替 source
+RUN . venv/bin/activate && pip install --upgrade pip \
+    && . venv/bin/activate && pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+
+# 4. 前端依赖 (解决 Rollup 报错)
+COPY frontend/package*.json ./frontend/
+RUN cd frontend && npm install && npm install @rollup/rollup-linux-x64-gnu
+
+# 5. 复制项目文件
+COPY . .
+COPY docker-dev-entrypoint.sh ./
+RUN chmod +x *.sh && chmod +x docker-dev-entrypoint.sh
+
+RUN mkdir -p data/projects data/uploads data/temp data/output logs
+EXPOSE 8000 3000
+CMD ["./docker-dev-entrypoint.sh"]
