@@ -24,7 +24,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/zhouxiaoka/autoclip.git
+git clone https://github.com/123mlly/autoclip.git
 cd autoclip
 
 # 配置环境变量（必填 API_DASHSCOPE_API_KEY）
