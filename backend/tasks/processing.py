@@ -57,20 +57,19 @@ def run_async_notification(coro):
 def process_video_pipeline(self, project_id: str, input_video_path: str, input_srt_path: str) -> Dict[str, Any]:
     """
     处理视频流水线任务 - 使用Pipeline适配器
-    
-    Args:
-        project_id: 项目ID
-        input_video_path: 输入视频路径
-        input_srt_path: 输入SRT路径
-        
-    Returns:
-        处理结果
     """
     task_id = self.request.id
     logger.info(f"开始处理视频流水线: {project_id}, 任务ID: {task_id}")
-    
+
+    from backend.utils.task_submission_utils import (
+        refresh_pipeline_lock,
+        release_pipeline_lock,
+    )
+
+    # 长任务保活锁；锁应在 submit 时已获取
+    refresh_pipeline_lock(project_id, owner=task_id)
+
     try:
-        # 创建数据库会话
         db = SessionLocal()
         
         try:
@@ -89,31 +88,22 @@ def process_video_pipeline(self, project_id: str, input_video_path: str, input_s
             db.add(task)
             db.commit()
             
-            # 发送开始通知
             run_async_notification(
                 notification_service.send_processing_start(project_id, task_id)
             )
             
-            # 简化的进度系统不需要复杂的回调函数
-            # 新的进度系统会在流水线内部自动发送进度事件
-            
-            # 使用简化的Pipeline适配器
             from backend.services.simple_pipeline_adapter import create_simple_pipeline_adapter
             pipeline_adapter = create_simple_pipeline_adapter(str(project_id), str(task.id))
             
-            # 执行Pipeline处理 - 使用异步包装器
             import asyncio
             result = asyncio.run(pipeline_adapter.process_project_sync(input_video_path, input_srt_path))
             
-            # 检查处理结果
             if result.get("status") == "failed":
-                # 处理失败
                 error_msg = result.get("message", "处理失败")
                 task.status = TaskStatus.FAILED
                 task.error_message = error_msg
                 task.result_data = result
                 
-                # 更新项目状态为失败
                 project = db.query(Project).filter(Project.id == project_id).first()
                 if project:
                     project.status = ProjectStatus.FAILED
@@ -121,13 +111,6 @@ def process_video_pipeline(self, project_id: str, input_video_path: str, input_s
                     logger.info(f"项目状态已更新为失败: {project_id}")
                 
                 db.commit()
-                
-                # 失败状态已由简化进度系统自动处理
-                
-                # 发送错误通知（兼容旧版本） - 已禁用WebSocket通知
-                # run_async_notification(
-                #     notification_service.send_processing_error(project_id, task_id, error_msg)
-                # )
                 
                 return {
                     "success": False,
@@ -137,13 +120,11 @@ def process_video_pipeline(self, project_id: str, input_video_path: str, input_s
                     "result": result
                 }
             else:
-                # 处理成功
                 task.status = TaskStatus.COMPLETED
                 task.progress = 100
                 task.current_step = "处理完成"
                 task.result_data = result
                 
-                # 更新项目状态为已完成
                 project = db.query(Project).filter(Project.id == project_id).first()
                 if project:
                     project.status = ProjectStatus.COMPLETED
@@ -152,13 +133,6 @@ def process_video_pipeline(self, project_id: str, input_video_path: str, input_s
                     logger.info(f"项目状态已更新为已完成: {project_id}")
                 
                 db.commit()
-                
-                # 完成状态已由简化进度系统自动处理
-                
-                # 发送完成通知（兼容旧版本） - 已禁用WebSocket通知
-                # run_async_notification(
-                #     notification_service.send_processing_complete(project_id, task_id, result)
-                # )
             
             logger.info(f"视频流水线处理完成: {project_id}")
             return {
@@ -176,7 +150,6 @@ def process_video_pipeline(self, project_id: str, input_video_path: str, input_s
         error_msg = f"视频流水线处理失败: {str(e)}"
         logger.error(error_msg)
         
-        # 更新任务状态为失败
         try:
             db = SessionLocal()
             task = db.query(Task).filter(Task.celery_task_id == task_id).first()
@@ -184,7 +157,6 @@ def process_video_pipeline(self, project_id: str, input_video_path: str, input_s
                 task.status = TaskStatus.FAILED
                 task.error_message = error_msg
                 
-                # 更新项目状态为失败
                 project = db.query(Project).filter(Project.id == project_id).first()
                 if project:
                     project.status = ProjectStatus.FAILED
@@ -196,12 +168,18 @@ def process_video_pipeline(self, project_id: str, input_video_path: str, input_s
         except Exception as db_error:
             logger.error(f"更新任务状态失败: {str(db_error)}")
         
-        # 发送错误通知
         run_async_notification(
             notification_service.send_processing_error(project_id, task_id, error_msg)
         )
         
         raise
+    finally:
+        release_pipeline_lock(project_id)
+        try:
+            from backend.services.auto_pipeline_service import auto_pipeline_service
+            auto_pipeline_service.processing_projects.discard(project_id)
+        except Exception:
+            pass
 
 @celery_app.task(bind=True, name='backend.tasks.processing.process_single_step')
 def process_single_step(self, project_id: str, step: str, config: Dict[str, Any]) -> Dict[str, Any]:

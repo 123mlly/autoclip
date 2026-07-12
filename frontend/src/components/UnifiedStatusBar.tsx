@@ -1,17 +1,10 @@
 /**
  * 统一状态栏组件 - 替换旧的复杂进度系统
- * 支持下载中、处理中、完成等状态的统一显示
+ * 支持下载中、生成字幕中、排队、处理中、完成等状态的统一显示
  */
 
 import React, { useEffect, useState } from 'react'
-import { Progress, Space, Typography, Tag } from 'antd'
-import { 
-  DownloadOutlined, 
-  LoadingOutlined, 
-  CheckCircleOutlined, 
-  ExclamationCircleOutlined,
-  ClockCircleOutlined
-} from '@ant-design/icons'
+import { Progress, Typography } from 'antd'
 import { useSimpleProgressStore, getStageDisplayName, getStageColor, isCompleted, isFailed } from '../stores/useSimpleProgressStore'
 import { apiUrl } from '../apiConfig'
 
@@ -20,14 +13,59 @@ const { Text } = Typography
 interface UnifiedStatusBarProps {
   projectId: string
   status: string
+  /** 可选：覆盖默认文案（如下载中的具体阶段） */
+  statusLabel?: string
   downloadProgress?: number
   onStatusChange?: (status: string) => void
   onDownloadProgressUpdate?: (progress: number) => void
 }
 
+function StatusChip({
+  percentText,
+  label,
+  color,
+  bg,
+  border,
+}: {
+  percentText: string
+  label: string
+  color: string
+  bg: string
+  border: string
+}) {
+  return (
+    <div style={{
+      background: bg,
+      border: `1px solid ${border}`,
+      borderRadius: '3px',
+      padding: '3px 6px',
+      textAlign: 'center',
+      width: '100%'
+    }}>
+      <div style={{
+        color,
+        fontSize: '11px',
+        fontWeight: 600,
+        lineHeight: '12px'
+      }}>
+        {percentText}
+      </div>
+      <div style={{
+        color: '#999999',
+        fontSize: '8px',
+        lineHeight: '9px',
+        minHeight: '9px'
+      }}>
+        {label}
+      </div>
+    </div>
+  )
+}
+
 export const UnifiedStatusBar: React.FC<UnifiedStatusBarProps> = ({
   projectId,
   status,
+  statusLabel,
   downloadProgress = 0,
   onStatusChange,
   onDownloadProgressUpdate
@@ -38,68 +76,77 @@ export const UnifiedStatusBar: React.FC<UnifiedStatusBarProps> = ({
   
   const progress = getProgress(projectId)
 
-  // 根据状态决定是否轮询
   useEffect(() => {
-    if ((status === 'processing' || status === 'pending') && !isPolling) {
-      console.log(`开始轮询处理进度: ${projectId}`)
+    setCurrentDownloadProgress(downloadProgress)
+  }, [downloadProgress])
+
+  // 处理中：轮询简化进度
+  useEffect(() => {
+    if (status === 'processing' && !isPolling) {
       startPolling([projectId], 2000)
       setIsPolling(true)
-    } else if (status !== 'processing' && status !== 'pending' && isPolling) {
-      console.log(`停止轮询处理进度: ${projectId}`)
+    } else if (status !== 'processing' && isPolling) {
       stopPolling()
       setIsPolling(false)
     }
 
     return () => {
       if (isPolling) {
-        console.log(`清理轮询: ${projectId}`)
         stopPolling()
         setIsPolling(false)
       }
     }
   }, [status, projectId, isPolling, startPolling, stopPolling])
 
-  // 下载进度轮询
+  // 下载 / 准备阶段：轮询项目 processing_config
   useEffect(() => {
-    if (status === 'downloading') {
-      const pollDownloadProgress = async () => {
-        try {
-          console.log(`轮询下载进度: ${projectId}`)
-          const response = await fetch(apiUrl(`/projects/${projectId}`))
-          if (response.ok) {
-            const projectData = await response.json()
-            console.log('项目数据:', projectData)
-            const newProgress = projectData.processing_config?.download_progress || 0
-            console.log(`下载进度更新: ${newProgress}%`)
-            setCurrentDownloadProgress(newProgress)
-            onDownloadProgressUpdate?.(newProgress)
-            
-            // 如果下载完成，检查是否需要切换到处理状态
-            if (newProgress >= 100) {
-              console.log('下载完成，切换到处理状态')
-              setTimeout(() => {
-                onStatusChange?.('processing')
-              }, 1000)
-            }
-          } else {
-            console.error('获取项目数据失败:', response.status, response.statusText)
-          }
-        } catch (error) {
-          console.error('获取下载进度失败:', error)
-        }
-      }
-
-      // 立即获取一次
-      pollDownloadProgress()
-      
-      // 每2秒轮询一次
-      const interval = setInterval(pollDownloadProgress, 2000)
-      
-      return () => clearInterval(interval)
+    if (status !== 'downloading' && status !== 'preparing' && status !== 'queued') {
+      return
     }
+
+    const pollProject = async () => {
+      try {
+        const response = await fetch(apiUrl(`/projects/${projectId}`))
+        if (!response.ok) return
+        const projectData = await response.json()
+        const cfg = projectData.processing_config || {}
+        const newProgress = Number(cfg.download_progress ?? 0)
+        const projectStatus = projectData.status
+
+        if (status === 'downloading') {
+          setCurrentDownloadProgress(newProgress)
+          onDownloadProgressUpdate?.(newProgress)
+          if (newProgress >= 100 || cfg.download_status === 'completed') {
+            onStatusChange?.(
+              /字幕|Whisper|whisper/i.test(String(cfg.download_message || ''))
+                ? 'preparing'
+                : 'queued'
+            )
+          }
+        }
+
+        if (cfg.download_status === 'failed' || projectStatus === 'failed') {
+          onStatusChange?.('failed')
+          return
+        }
+        if (projectStatus === 'processing') {
+          onStatusChange?.('processing')
+          return
+        }
+        if (projectStatus === 'completed') {
+          onStatusChange?.('completed')
+        }
+      } catch (error) {
+        console.error('获取项目进度失败:', error)
+      }
+    }
+
+    pollProject()
+    const interval = setInterval(pollProject, 2000)
+    return () => clearInterval(interval)
   }, [status, projectId, onDownloadProgressUpdate, onStatusChange])
 
-  // 处理状态变化
+  // 处理状态变化（简化进度 store）
   useEffect(() => {
     if (progress && onStatusChange) {
       if (isCompleted(progress.stage)) {
@@ -110,224 +157,103 @@ export const UnifiedStatusBar: React.FC<UnifiedStatusBarProps> = ({
     }
   }, [progress, onStatusChange])
 
-  // 导入中状态
-  if (status === 'importing') {
-    return (
-      <div style={{
-        background: 'rgba(255, 193, 7, 0.1)',
-        border: '1px solid rgba(255, 193, 7, 0.3)',
-        borderRadius: '3px',
-        padding: '3px 6px',
-        textAlign: 'center',
-        width: '100%'
-      }}>
-        <div style={{ 
-          color: '#ffc107',
-          fontSize: '11px', 
-          fontWeight: 600, 
-          lineHeight: '12px'
-        }}>
-          {Math.round(downloadProgress)}%
-        </div>
-        <div style={{ 
-          color: '#999999', 
-          fontSize: '8px', 
-          lineHeight: '9px'
-        }}>
-          导入中
-        </div>
-      </div>
-    )
-  }
-
-  // 下载中状态
   if (status === 'downloading') {
+    const pct = Math.round(currentDownloadProgress || 0)
     return (
-      <div style={{
-        background: 'rgba(24, 144, 255, 0.1)',
-        border: '1px solid rgba(24, 144, 255, 0.3)',
-        borderRadius: '3px',
-        padding: '3px 6px',
-        textAlign: 'center',
-        width: '100%'
-      }}>
-        <div style={{ 
-          color: '#1890ff',
-          fontSize: '11px', 
-          fontWeight: 600, 
-          lineHeight: '12px'
-        }}>
-          {Math.round(currentDownloadProgress)}%
-        </div>
-        <div style={{ 
-          color: '#999999', 
-          fontSize: '8px', 
-          lineHeight: '9px'
-        }}>
-          下载中
-        </div>
-      </div>
+      <StatusChip
+        percentText={`${pct}%`}
+        label={statusLabel || '下载中'}
+        color="#1890ff"
+        bg="rgba(24, 144, 255, 0.1)"
+        border="rgba(24, 144, 255, 0.3)"
+      />
     )
   }
 
-  // 处理中状态 - 使用新的简化进度系统
+  if (status === 'preparing') {
+    return (
+      <StatusChip
+        percentText="…"
+        label={statusLabel || '生成字幕中'}
+        color="#fa8c16"
+        bg="rgba(250, 140, 22, 0.1)"
+        border="rgba(250, 140, 22, 0.3)"
+      />
+    )
+  }
+
+  if (status === 'queued' || status === 'importing' || status === 'pending') {
+    return (
+      <StatusChip
+        percentText="…"
+        label={statusLabel || (status === 'importing' ? '导入中' : '排队处理中')}
+        color="#faad14"
+        bg="rgba(250, 173, 20, 0.1)"
+        border="rgba(250, 173, 20, 0.3)"
+      />
+    )
+  }
+
   if (status === 'processing') {
     if (!progress) {
-      // 等待进度数据
       return (
-      <div style={{
-        background: 'rgba(82, 196, 26, 0.1)',
-        border: '1px solid rgba(82, 196, 26, 0.3)',
-        borderRadius: '3px',
-        padding: '3px 6px',
-        textAlign: 'center',
-        width: '100%'
-      }}>
-        <div style={{ 
-          color: '#52c41a',
-          fontSize: '11px', 
-          fontWeight: 600, 
-          lineHeight: '12px'
-        }}>
-          0%
-        </div>
-        <div style={{ 
-          color: '#999999', 
-          fontSize: '8px', 
-          lineHeight: '9px'
-        }}>
-          初始化中...
-        </div>
-      </div>
+        <StatusChip
+          percentText="…"
+          label={statusLabel || '初始化中'}
+          color="#52c41a"
+          bg="rgba(82, 196, 26, 0.1)"
+          border="rgba(82, 196, 26, 0.3)"
+        />
       )
     }
 
     const { stage, percent, message } = progress
     const stageDisplayName = getStageDisplayName(stage)
-    const stageColor = getStageColor(stage)
     const failed = isFailed(message)
 
     return (
-      <div style={{
-        background: failed 
-          ? 'rgba(255, 77, 79, 0.1)'
-          : 'rgba(82, 196, 26, 0.1)',
-        border: failed 
-          ? '1px solid rgba(255, 77, 79, 0.3)'
-          : '1px solid rgba(82, 196, 26, 0.3)',
-        borderRadius: '3px',
-        padding: '3px 6px',
-        textAlign: 'center',
-        width: '100%'
-      }}>
-        <div style={{ 
-          color: failed ? '#ff4d4f' : '#52c41a',
-          fontSize: '11px', 
-          fontWeight: 600, 
-          lineHeight: '12px'
-        }}>
-          {failed ? '✗ 失败' : `${percent}%`}
-        </div>
-        <div style={{ 
-          color: '#999999', 
-          fontSize: '8px', 
-          lineHeight: '9px',
-          minHeight: '9px' // 确保失败状态也有固定高度
-        }}>
-          {failed ? '' : stageDisplayName}
-        </div>
-      </div>
+      <StatusChip
+        percentText={failed ? '✗ 失败' : `${percent}%`}
+        label={failed ? '' : stageDisplayName}
+        color={failed ? '#ff4d4f' : '#52c41a'}
+        bg={failed ? 'rgba(255, 77, 79, 0.1)' : 'rgba(82, 196, 26, 0.1)'}
+        border={failed ? 'rgba(255, 77, 79, 0.3)' : 'rgba(82, 196, 26, 0.3)'}
+      />
     )
   }
 
-  // 已完成状态
   if (status === 'completed') {
     return (
-      <div style={{
-        background: 'rgba(82, 196, 26, 0.1)',
-        border: '1px solid rgba(82, 196, 26, 0.3)',
-        borderRadius: '3px',
-        padding: '3px 6px',
-        textAlign: 'center',
-        width: '100%'
-      }}>
-        <div style={{ 
-          color: '#52c41a',
-          fontSize: '11px', 
-          fontWeight: 600, 
-          lineHeight: '12px'
-        }}>
-          ✓
-        </div>
-        <div style={{ 
-          color: '#999999', 
-          fontSize: '8px', 
-          lineHeight: '9px'
-        }}>
-          已完成
-        </div>
-      </div>
+      <StatusChip
+        percentText="✓"
+        label="已完成"
+        color="#52c41a"
+        bg="rgba(82, 196, 26, 0.1)"
+        border="rgba(82, 196, 26, 0.3)"
+      />
     )
   }
 
-  // 失败状态
   if (status === 'failed') {
     return (
-      <div style={{
-        background: 'rgba(255, 77, 79, 0.1)',
-        border: '1px solid rgba(255, 77, 79, 0.3)',
-        borderRadius: '3px',
-        padding: '3px 6px',
-        textAlign: 'center',
-        width: '100%'
-      }}>
-        <div style={{ 
-          color: '#ff4d4f',
-          fontSize: '11px', 
-          fontWeight: 600, 
-          lineHeight: '12px'
-        }}>
-          ✗ 失败
-        </div>
-        <div style={{ 
-          color: '#999999', 
-          fontSize: '8px', 
-          lineHeight: '9px',
-          minHeight: '9px' // 确保失败状态也有固定高度
-        }}>
-          处理失败
-        </div>
-      </div>
+      <StatusChip
+        percentText="✗ 失败"
+        label={statusLabel && statusLabel !== '处理失败' ? statusLabel : '处理失败'}
+        color="#ff4d4f"
+        bg="rgba(255, 77, 79, 0.1)"
+        border="rgba(255, 77, 79, 0.3)"
+      />
     )
   }
 
-  // 等待状态
   return (
-    <div style={{
-      background: 'rgba(217, 217, 217, 0.1)',
-      border: '1px solid rgba(217, 217, 217, 0.3)',
-      borderRadius: '3px',
-      padding: '3px 6px',
-      textAlign: 'center',
-      width: '100%'
-    }}>
-      <div style={{ 
-        color: '#d9d9d9',
-        fontSize: '11px', 
-        fontWeight: 600, 
-        lineHeight: '12px'
-      }}>
-        ○ 等待中
-      </div>
-      <div style={{ 
-        color: '#999999', 
-        fontSize: '8px', 
-        lineHeight: '9px',
-        minHeight: '9px' // 确保等待状态也有固定高度
-      }}>
-        等待处理
-      </div>
-    </div>
+    <StatusChip
+      percentText="○"
+      label={statusLabel || '等待处理'}
+      color="#d9d9d9"
+      bg="rgba(217, 217, 217, 0.1)"
+      border="rgba(217, 217, 217, 0.3)"
+    />
   )
 }
 
@@ -361,7 +287,7 @@ export const SimpleProgressDisplay: React.FC<SimpleProgressDisplayProps> = ({
         strokeColor={stageColor}
         showInfo={true}
         size="small"
-        format={(percent) => `${percent}%`}
+        format={(p) => `${p}%`}
       />
       {message && (
         <Text type="secondary" style={{ fontSize: '11px', display: 'block', marginTop: '4px' }}>

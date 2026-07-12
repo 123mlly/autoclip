@@ -9,6 +9,10 @@ const { Text } = Typography
 const { Option } = Select
 const { TabPane } = Tabs
 
+/** 避免默认 `clipIds = []` 每次渲染新引用导致 useEffect 死循环请求 */
+const EMPTY_CLIP_IDS: string[] = []
+const EMPTY_CLIP_TITLES: string[] = []
+
 interface BilibiliManagerProps {
   visible: boolean
   onClose: () => void
@@ -22,8 +26,8 @@ const BilibiliManager: React.FC<BilibiliManagerProps> = ({
   visible,
   onClose,
   projectId,
-  clipIds = [],
-  clipTitles = [],
+  clipIds = EMPTY_CLIP_IDS,
+  clipTitles = EMPTY_CLIP_TITLES,
   onUploadSuccess
 }) => {
   const [activeTab, setActiveTab] = useState('upload')
@@ -105,17 +109,14 @@ const BilibiliManager: React.FC<BilibiliManagerProps> = ({
   }
 
   useEffect(() => {
-    if (visible) {
-      fetchAccounts()
-      fetchUploadRecords()
-      // 如果有切片数据，默认显示上传标签页
-      if (clipIds.length > 0) {
-        setActiveTab('upload')
-      } else {
-        setActiveTab('accounts')
-      }
-    }
-  }, [visible, clipIds])
+    if (!visible) return
+    fetchAccounts()
+    fetchUploadRecords()
+    // 有切片数据时默认上传页，否则账号管理
+    setActiveTab(clipIds.length > 0 ? 'upload' : 'accounts')
+    // 仅在弹窗打开时拉取；用 length 避免数组引用变化导致重复请求
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, clipIds.length])
 
   // Cookie导入登录
   const handleCookieLogin = async (values: any) => {

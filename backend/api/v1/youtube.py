@@ -4,6 +4,7 @@ YouTube相关API路由
 """
 
 import logging
+import os
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Form, UploadFile, File
 from pydantic import BaseModel
@@ -24,12 +25,35 @@ download_tasks = {}
 
 # YouTube 常被判定为 bot，需浏览器 Cookie；解析时按顺序自动尝试
 _YOUTUBE_BROWSER_CANDIDATES = ("chrome", "safari", "edge", "firefox", "chromium", "brave")
+_YOUTUBE_COOKIE_FILENAME = "youtube.txt"
+
+
+def _running_in_docker() -> bool:
+    """容器内通常没有宿主机浏览器 Cookie 库。"""
+    return Path("/.dockerenv").exists() or os.environ.get("RUNNING_IN_DOCKER", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def get_youtube_cookiefile_path() -> Path:
+    """固定路径：data/cookies/youtube.txt（Docker 已挂载 ./data）。"""
+    return get_data_directory() / "cookies" / _YOUTUBE_COOKIE_FILENAME
+
+
+def resolve_youtube_cookiefile() -> Optional[Path]:
+    path = get_youtube_cookiefile_path()
+    if path.is_file() and path.stat().st_size > 0:
+        return path
+    return None
 
 
 def _resolve_js_runtimes() -> dict:
     """
     YouTube 需要 JS 挑战求解（EJS）。默认只启用 deno；本机常见是 Node，
     因此同时启用 node（若在 PATH 中），避免签名/n challenge 失败后只剩图片格式。
+    Docker 生产镜像应包含 Node ≥ 20。
     """
     import shutil
 
@@ -37,6 +61,12 @@ def _resolve_js_runtimes() -> dict:
     node_path = shutil.which("node")
     if node_path:
         runtimes["node"] = {"path": node_path}
+        logger.debug(f"yt-dlp js_runtimes: node={node_path}")
+    else:
+        logger.warning(
+            "未找到 Node.js：YouTube n challenge 可能失败。"
+            "Docker 请使用已包含 Node 22 的镜像并重建；本机请安装 Node ≥ 20。"
+        )
     return runtimes
 
 
@@ -44,8 +74,10 @@ def _build_youtube_ydl_opts(
     browser: Optional[str] = None,
     for_download: bool = False,
     extra: Optional[dict] = None,
+    *,
+    use_cookiefile: bool = True,
 ) -> dict:
-    """构建 yt-dlp 选项（含 EJS / Node 运行时）"""
+    """构建 yt-dlp 选项（含 EJS / Node 运行时）。优先 cookie 文件，其次浏览器 Cookie。"""
     opts = {
         "quiet": True,
         "no_warnings": True,
@@ -59,7 +91,11 @@ def _build_youtube_ydl_opts(
         # 放宽格式：优先 mp4，否则任意最佳音视频再合并
         opts["format"] = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
         opts["merge_output_format"] = "mp4"
-    if browser:
+
+    cookiefile = resolve_youtube_cookiefile() if use_cookiefile else None
+    if cookiefile:
+        opts["cookiefile"] = str(cookiefile)
+    elif browser:
         opts["cookiesfrombrowser"] = (browser.lower(),)
     if extra:
         opts.update(extra)
@@ -74,51 +110,83 @@ def _is_bot_or_auth_error(error: Exception) -> bool:
             "sign in to confirm",
             "not a bot",
             "cookiesfrombrowser",
+            "cookiefile",
             "login required",
             "confirm you’re not a bot",
             "confirm you're not a bot",
+            "could not find chrome cookies",
+            "cookies database",
         )
     )
 
 
-def extract_youtube_info(url: str, browser: Optional[str] = None) -> tuple[dict, Optional[str]]:
+def _youtube_auth_hint() -> str:
+    if _running_in_docker():
+        return (
+            "Docker 内无法读取本机浏览器 Cookie。"
+            "请在链接导入页上传 YouTube 的 cookies.txt"
+            f"（保存为 data/cookies/{_YOUTUBE_COOKIE_FILENAME}），或改用本机模式。"
+        )
+    return (
+        "YouTube 需要登录态才能解析。请上传 cookies.txt，"
+        "或选择已登录 YouTube 的浏览器（Chrome / Safari 等）。"
+    )
+
+
+def extract_youtube_info(url: str, browser: Optional[str] = None) -> tuple[dict, Optional[str], bool]:
     """
     解析 YouTube 视频信息。
-    若未指定 browser 且遇到反爬，自动尝试本机常见浏览器 Cookie。
-    返回 (info_dict, used_browser)
+    优先使用已上传的 cookies.txt；否则按 browser / 本机浏览器候选尝试。
+    Docker 内跳过浏览器 Cookie（容器无 Chrome 配置）。
+    返回 (info_dict, used_browser, used_cookiefile)
     """
+    last_error: Optional[Exception] = None
+    cookiefile = resolve_youtube_cookiefile()
+
+    if cookiefile:
+        opts = _build_youtube_ydl_opts(None, for_download=False, use_cookiefile=True)
+        try:
+            logger.info(f"解析 YouTube（cookiefile={cookiefile}）: {url}")
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if not info:
+                raise RuntimeError("未获取到视频信息")
+            return info, None, True
+        except Exception as e:
+            last_error = e
+            logger.warning(f"YouTube 解析失败 cookiefile: {e}")
+            # cookie 文件无效时继续尝试浏览器（本机）或无 cookie
+
     browsers_to_try: list[Optional[str]] = []
     if browser:
         browsers_to_try.append(browser.lower())
     else:
         browsers_to_try.append(None)
-        browsers_to_try.extend(_YOUTUBE_BROWSER_CANDIDATES)
+        # Docker 内没有宿主机浏览器配置，盲试 chrome 只会刷错误日志
+        if not _running_in_docker():
+            browsers_to_try.extend(_YOUTUBE_BROWSER_CANDIDATES)
 
-    last_error: Optional[Exception] = None
     for candidate in browsers_to_try:
-        opts = _build_youtube_ydl_opts(candidate, for_download=False)
+        # 已试过 cookiefile；此处仅浏览器 / 无 cookie
+        opts = _build_youtube_ydl_opts(
+            candidate, for_download=False, use_cookiefile=False
+        )
         try:
             logger.info(f"解析 YouTube（browser={candidate or 'none'}）: {url}")
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
             if not info:
                 raise RuntimeError("未获取到视频信息")
-            return info, candidate
+            return info, candidate, False
         except Exception as e:
             last_error = e
             logger.warning(f"YouTube 解析失败 browser={candidate or 'none'}: {e}")
-            # 无 cookie 时若是 bot 错误，继续试浏览器；指定了 browser 则不再盲试
             if browser:
                 break
             if candidate is None and not _is_bot_or_auth_error(e):
-                # 非反爬错误且无 cookie，不必再试浏览器
-                # 但仍可尝试浏览器（有时也能修好格式问题）
                 continue
 
-    hint = (
-        "YouTube 需要登录态才能解析。请在页面选择已登录 YouTube 的浏览器"
-        "（Chrome / Safari 等），或先在该浏览器打开 youtube.com 并登录。"
-    )
+    hint = _youtube_auth_hint()
     if last_error and _is_bot_or_auth_error(last_error):
         raise RuntimeError(f"{hint} 原始错误: {last_error}") from last_error
     raise RuntimeError(f"解析 YouTube 失败: {last_error}") from last_error
@@ -156,6 +224,85 @@ class YouTubeDownloadTask(BaseModel):
     created_at: str
     updated_at: str
 
+
+@router.get("/cookies/status")
+async def youtube_cookies_status():
+    """查询已上传的 YouTube cookies.txt 状态（Docker 推荐）。"""
+    path = resolve_youtube_cookiefile()
+    if not path:
+        return {
+            "configured": False,
+            "path": str(get_youtube_cookiefile_path()),
+            "in_docker": _running_in_docker(),
+            "hint": _youtube_auth_hint(),
+        }
+    stat = path.stat()
+    return {
+        "configured": True,
+        "path": str(path),
+        "size": stat.st_size,
+        "updated_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        "in_docker": _running_in_docker(),
+        "hint": "已配置 cookies.txt，解析/下载将优先使用该文件。",
+    }
+
+
+@router.post("/cookies")
+async def upload_youtube_cookies(file: UploadFile = File(...)):
+    """
+    上传 Netscape 格式的 YouTube cookies.txt。
+    可用浏览器扩展「Get cookies.txt LOCALLY」从已登录的 youtube.com 导出。
+    """
+    filename = (file.filename or "").lower()
+    if filename and not (
+        filename.endswith(".txt") or filename.endswith(".cookies") or "cookie" in filename
+    ):
+        # 仍允许无扩展名；仅拦截明显非文本类型
+        if file.content_type and "text" not in file.content_type and file.content_type != "application/octet-stream":
+            raise HTTPException(status_code=400, detail="请上传 cookies.txt 文本文件")
+
+    raw = await file.read()
+    if not raw or len(raw) < 20:
+        raise HTTPException(status_code=400, detail="Cookie 文件为空或过短")
+    if len(raw) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Cookie 文件过大（上限 2MB）")
+
+    try:
+        text = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as e:
+        raise HTTPException(status_code=400, detail="Cookie 文件必须是 UTF-8 文本") from e
+
+    # Netscape cookies.txt 通常含 # Netscape 或域名行；也接受简单的 name=value 导出
+    lowered = text.lower()
+    if "youtube" not in lowered and ".youtube." not in lowered and "netscape" not in lowered:
+        # 宽松：只要像 cookie 表或含 SID/HSID 等也可
+        if "\t" not in text and "youtube.com" not in lowered:
+            logger.warning("上传的 cookie 文件未检测到 youtube 域名，仍将保存供 yt-dlp 使用")
+
+    dest = get_youtube_cookiefile_path()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(text, encoding="utf-8")
+    logger.info(f"已保存 YouTube cookies: {dest} ({dest.stat().st_size} bytes)")
+
+    return {
+        "success": True,
+        "configured": True,
+        "path": str(dest),
+        "size": dest.stat().st_size,
+        "message": "cookies.txt 已保存，可重新解析 YouTube 链接",
+    }
+
+
+@router.delete("/cookies")
+async def delete_youtube_cookies():
+    """删除已上传的 YouTube cookies.txt。"""
+    path = get_youtube_cookiefile_path()
+    if path.is_file():
+        path.unlink()
+        logger.info(f"已删除 YouTube cookies: {path}")
+    return {"success": True, "configured": False}
+
+
 @router.post("/parse")
 async def parse_youtube_video(
     url: str = Form(...),
@@ -170,18 +317,19 @@ async def parse_youtube_video(
             raise HTTPException(status_code=400, detail="无效的YouTube视频链接")
         
         loop = asyncio.get_event_loop()
-        info_dict, used_browser = await loop.run_in_executor(
+        info_dict, used_browser, used_cookiefile = await loop.run_in_executor(
             None, extract_youtube_info, url, browser
         )
         
         logger.info(
             f"YouTube视频信息解析成功: {info_dict.get('title', 'Unknown')} "
-            f"(browser={used_browser or 'none'})"
+            f"(browser={used_browser or 'none'}, cookiefile={used_cookiefile})"
         )
         
         return {
             "success": True,
             "used_browser": used_browser,
+            "used_cookiefile": used_cookiefile,
             "video_info": {
                 "title": info_dict.get('title', 'Unknown'),
                 "description": info_dict.get('description', ''),
@@ -206,12 +354,14 @@ async def create_youtube_download_task(request: YouTubeDownloadRequest):
     try:
         logger.info(f"创建YouTube下载任务: {request.url}")
         
-        # 先获取视频信息以获取缩略图（自动尝试浏览器 Cookie）
+        # 先获取视频信息以获取缩略图（cookie 文件或浏览器 Cookie）
         loop = asyncio.get_event_loop()
-        video_info, used_browser = await loop.run_in_executor(
+        video_info, used_browser, used_cookiefile = await loop.run_in_executor(
             None, extract_youtube_info, request.url, request.browser
         )
-        if used_browser and not request.browser:
+        if used_cookiefile:
+            logger.info("下载任务将使用已上传的 cookies.txt")
+        elif used_browser and not request.browser:
             request.browser = used_browser
             logger.info(f"下载任务将使用自动检测到的浏览器 Cookie: {used_browser}")
         
@@ -377,6 +527,61 @@ async def update_project_download_progress(project_id: str, progress: float, mes
     except Exception as e:
         logger.error(f"更新项目下载进度失败: {e}")
 
+
+def _format_youtube_download_error(error: Exception) -> str:
+    """把 yt-dlp / Cookie 相关错误整理成前端可读文案。"""
+    raw = str(error)
+    lower = raw.lower()
+    if any(
+        k in lower
+        for k in (
+            "sign in to confirm",
+            "not a bot",
+            "login required",
+            "cookiesfrombrowser",
+            "cookiefile",
+        )
+    ):
+        return (
+            "YouTube 需要有效登录 Cookie（可能已失效）。"
+            "请在链接导入页重新上传从已登录 youtube.com 导出的 cookies.txt 后再试。"
+            f" 详情: {raw}"
+        )
+    return raw
+
+
+async def _mark_youtube_download_failed(project_id: Optional[str], error: Exception) -> str:
+    """标记内存任务与项目为失败，返回给前端的错误文案。"""
+    msg = _format_youtube_download_error(error)
+    if not project_id:
+        return msg
+    try:
+        from ...core.database import SessionLocal
+        from ...services.project_service import ProjectService
+        from ...schemas.project import ProjectStatus
+
+        db = SessionLocal()
+        try:
+            project_service = ProjectService(db)
+            project = project_service.get(project_id)
+            if project:
+                project.status = ProjectStatus.FAILED
+                if not project.processing_config:
+                    project.processing_config = {}
+                project.processing_config.update({
+                    "download_status": "failed",
+                    "download_progress": 0.0,
+                    "download_message": msg,
+                    "error_message": msg,
+                })
+                db.commit()
+                logger.info(f"项目 {project_id} 已标记为下载失败")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"标记项目下载失败状态时出错: {e}")
+    return msg
+
 async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRequest, project_id: str):
     """处理YouTube下载任务"""
     try:
@@ -399,11 +604,20 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
         # 更新项目进度
         await update_project_download_progress(project_id, 30.0, "正在下载视频...")
 
-        # 与解析共用 EJS/Node 配置；未指定浏览器时默认尝试 chrome（YouTube 常需登录态）
-        browser = (request.browser or "chrome").lower()
+        # 优先 cookies.txt；未配置时用请求中的 browser。Docker 内不再默认 chrome。
+        cookiefile = resolve_youtube_cookiefile()
+        browser = None if cookiefile else (request.browser.lower() if request.browser else None)
+        if cookiefile:
+            logger.info(f"YouTube 下载使用 cookiefile={cookiefile}")
+        elif browser:
+            logger.info(f"YouTube 下载使用 browser={browser}")
+        else:
+            logger.info("YouTube 下载未使用 Cookie（可能因反爬失败）")
+
         ydl_opts = _build_youtube_ydl_opts(
             browser,
             for_download=True,
+            use_cookiefile=True,
             extra={
                 "writesubtitles": True,
                 "writeautomaticsub": True,
@@ -449,59 +663,21 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
         
         download_tasks[task_id].progress = 80.0
         
-        # 更新项目进度
-        await update_project_download_progress(project_id, 60.0, "视频下载完成，正在处理字幕...")
-        
-        # 如果没有字幕文件，优先使用Whisper生成字幕
+        # 平台字幕（轻量）；Whisper 交给 Celery，避免堵 API
+        await update_project_download_progress(project_id, 60.0, "视频下载完成，正在整理文件...")
         if not subtitle_path:
-            logger.info("优先使用Whisper生成高质量字幕")
-            # 更新项目进度
-            await update_project_download_progress(project_id, 70.0, "正在使用Whisper生成字幕...")
-            
+            logger.info("未附带 SRT，尝试拉取 YouTube 平台字幕（Whisper 将在 Celery 中执行）")
             try:
-                from ...utils.speech_recognizer import generate_subtitle_for_video, SpeechRecognitionError
-                video_file_path = Path(video_path)
-                
-                # 根据视频信息选择合适的模型
-                model = "base"  # 默认使用平衡模型
-                language = "auto"  # 默认自动检测语言
-                
-                # 可以根据视频标题判断内容类型
-                # 这里可以添加更智能的内容类型判断逻辑
-                
-                logger.info(f"使用Whisper生成字幕 - 语言: {language}, 模型: {model}")
-                
-                generated_subtitle = generate_subtitle_for_video(
-                    video_file_path,
-                    language=language,
-                    model=model,
-                    method="whisper_local",
+                subtitle_path = await _try_youtube_subtitle_strategies(
+                    request.url, download_dir, request.browser
                 )
-                subtitle_path = str(generated_subtitle)
-                logger.info(f"Whisper字幕生成成功: {subtitle_path}")
-                
-                # 更新项目进度
-                await update_project_download_progress(project_id, 90.0, "字幕生成完成，正在准备处理...")
-                
-            except SpeechRecognitionError as e:
-                logger.error(f"Whisper字幕生成失败: {e}")
-                # Whisper失败时，尝试多种策略获取平台字幕作为备用
-                logger.info("尝试下载平台字幕作为备用方案")
-                try:
-                    subtitle_path = await _try_youtube_subtitle_strategies(request.url, download_dir, request.browser)
-                    if subtitle_path:
-                        logger.info(f"备用字幕获取成功: {subtitle_path}")
-                    else:
-                        logger.warning("所有字幕获取策略都失败了")
-                        subtitle_path = None  # 确保字幕路径为空，后续会标记项目失败
-                except Exception as backup_error:
-                    logger.error(f"备用字幕获取也失败: {backup_error}")
-                    subtitle_path = None  # 确保字幕路径为空，后续会标记项目失败
+                if subtitle_path:
+                    logger.info(f"平台字幕获取成功: {subtitle_path}")
             except Exception as e:
-                logger.error(f"生成字幕过程中发生未知错误: {e}")
-                subtitle_path = None  # 确保字幕路径为空，后续会标记项目失败
+                logger.warning(f"平台字幕获取失败（将由 Celery Whisper 补全）: {e}")
+                subtitle_path = ""
         
-        logger.info(f"下载完成 - 视频文件: {video_path}, 字幕文件: {subtitle_path}")
+        logger.info(f"下载完成 - 视频文件: {video_path}, 字幕文件: {subtitle_path or '无（待 Celery Whisper）'}")
         
         # 更新项目信息（项目已在开始时创建）
         from ...services.project_service import ProjectService
@@ -518,7 +694,6 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
             
             # 更新项目信息
             project.description = f"从YouTube下载: {request.project_name}"
-            # 注意：不要在这里设置video_path，等文件移动完成后再设置
             
             # 更新项目设置
             if not project.processing_config:
@@ -532,7 +707,7 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
                     "view_count": 0,
                     "like_count": 0
                 },
-                "subtitle_path": subtitle_path,
+                "subtitle_path": subtitle_path or None,
                 "download_status": "completed",
                 "download_progress": 100.0
             })
@@ -543,66 +718,33 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
             raw_dir = project_dir / "raw"
             raw_dir.mkdir(parents=True, exist_ok=True)
             
-            # 移动视频文件到项目目录
             import shutil
-            from pathlib import Path
+            new_video_path = raw_dir / "input.mp4"
+            new_subtitle_path = None
             
             if video_path:
                 video_file_path = Path(video_path)
                 if video_file_path.exists():
-                    # 重命名视频文件为input.mp4
-                    new_video_path = raw_dir / "input.mp4"
                     shutil.move(str(video_file_path), str(new_video_path))
                     logger.info(f"视频文件已移动到: {new_video_path}")
-                    
-                    # 更新项目中的视频路径
                     project.video_path = str(new_video_path)
             
-            # 移动字幕文件到项目目录
             if subtitle_path:
                 subtitle_file_path = Path(subtitle_path)
                 if subtitle_file_path.exists():
-                    # 重命名字幕文件为input.srt
                     new_subtitle_path = raw_dir / "input.srt"
                     shutil.move(str(subtitle_file_path), str(new_subtitle_path))
                     logger.info(f"字幕文件已移动到: {new_subtitle_path}")
-                    
-                    # 更新项目处理配置中的字幕路径
-                    if not project.processing_config:
-                        project.processing_config = {}
                     project.processing_config["subtitle_path"] = str(new_subtitle_path)
             
-            # 保存项目更新
+            from ...schemas.project import ProjectStatus
+            project.status = ProjectStatus.PENDING
             db.commit()
             
-            # 检查字幕文件是否存在，如果不存在则标记项目为失败
-            srt_file_path = raw_dir / "input.srt"
-            if not srt_file_path.exists():
-                logger.error(f"字幕文件不存在: {srt_file_path}，项目将标记为失败状态")
-                from ...schemas.project import ProjectStatus
-                project.status = ProjectStatus.FAILED
-                if not project.processing_config:
-                    project.processing_config = {}
-                project.processing_config["error_message"] = "字幕文件不存在且Whisper生成失败"
-                db.commit()
-                
-                # 更新任务状态为失败
-                download_tasks[task_id].status = "failed"
-                download_tasks[task_id].error_message = "字幕文件不存在且Whisper生成失败"
-                download_tasks[task_id].progress = 0.0
-                download_tasks[task_id].project_id = str(project.id)
-                download_tasks[task_id].updated_at = datetime.now().isoformat()
-                
-                # 更新项目下载进度为失败
-                await update_project_download_progress(project_id, 0.0, "下载失败：字幕文件不存在")
-                
-                logger.info(f"YouTube下载任务失败: {task_id}, 项目ID: {project.id}, 原因: 字幕文件不存在")
-                return
+            await update_project_download_progress(
+                project_id, 100.0, "下载完成，已提交后台生成字幕/处理"
+            )
             
-            # 更新项目下载进度为完成
-            await update_project_download_progress(project_id, 100.0, "下载完成，准备开始处理")
-            
-            # 更新任务状态
             download_tasks[task_id].status = "completed"
             download_tasks[task_id].progress = 100.0
             download_tasks[task_id].project_id = str(project.id)
@@ -610,56 +752,35 @@ async def process_youtube_download_task(task_id: str, request: YouTubeDownloadRe
             
             logger.info(f"YouTube下载任务完成: {task_id}, 项目ID: {project.id}")
             
-            # 自动启动处理流程
+            # Whisper + 流水线交给 Celery（与本地上传一致）
             try:
-                # 更新项目状态为等待处理
-                from ...schemas.project import ProjectStatus
-                project.status = ProjectStatus.PENDING  # 改为PENDING，让自动化服务启动
-                db.commit()
-                
-                logger.info(f"YouTube项目 {project.id} 下载完成，等待自动化流水线启动")
-                
-                # 异步启动自动化流水线
-                import asyncio
-                from ...services.auto_pipeline_service import auto_pipeline_service
-                
-                # 使用create_task在已运行的事件循环中执行
-                try:
-                    loop = asyncio.get_running_loop()
-                    # 在已运行的事件循环中创建任务
-                    task = loop.create_task(
-                        auto_pipeline_service.auto_start_pipeline(str(project.id))
-                    )
-                    # 等待任务完成
-                    pipeline_result = await task
-                except RuntimeError:
-                    # 如果没有运行的事件循环，创建新的
-                    pipeline_result = await auto_pipeline_service.auto_start_pipeline(str(project.id))
-                
-                if pipeline_result['status'] == 'started':
-                    logger.info(f"YouTube项目 {project.id} 自动化流水线已启动: {pipeline_result}")
-                else:
-                    logger.warning(f"YouTube项目 {project.id} 自动化流水线启动结果: {pipeline_result}")
-                
+                from ...tasks.import_processing import process_import_task
+                celery_task = process_import_task.delay(
+                    str(project.id),
+                    str(new_video_path),
+                    str(new_subtitle_path) if new_subtitle_path and new_subtitle_path.exists() else None,
+                )
+                logger.info(
+                    f"YouTube项目 {project.id} 已提交 Celery 导入处理: {celery_task.id}"
+                )
             except Exception as e:
-                logger.error(f"启动YouTube项目 {project.id} 自动化流水线失败: {str(e)}")
-                # 即使处理启动失败，也要返回下载成功
-                # 用户可以通过重试按钮重新启动处理
+                logger.error(f"提交 Celery 导入任务失败: {e}")
             
         except Exception as e:
             logger.error(f"创建项目失败: {str(e)}")
-            # 即使处理启动失败，也要返回下载成功
-            # 用户可以通过重试按钮重新启动处理
             
         finally:
             db.close()
             
     except Exception as e:
         logger.error(f"处理下载任务失败: {str(e)}")
-        download_tasks[task_id].status = "failed"
-        download_tasks[task_id].error_message = str(e)
-        download_tasks[task_id].progress = 0.0
-        download_tasks[task_id].updated_at = datetime.now().isoformat()
+        err_msg = await _mark_youtube_download_failed(project_id, e)
+        if task_id in download_tasks:
+            download_tasks[task_id].status = "failed"
+            download_tasks[task_id].error_message = err_msg
+            download_tasks[task_id].progress = 0.0
+            download_tasks[task_id].project_id = project_id
+            download_tasks[task_id].updated_at = datetime.now().isoformat()
 
 
 async def _try_youtube_subtitle_strategies(url: str, download_dir: Path, browser: Optional[str] = None) -> str:

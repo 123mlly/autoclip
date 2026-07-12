@@ -27,40 +27,17 @@ const HomePage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [activeTab, setActiveTab] = useState<'upload' | 'bilibili'>('upload')
 
-  // WebSocket连接已禁用，使用新的简化进度系统
-  // const handleWebSocketMessage = (message: WebSocketEventMessage) => {
-  //   console.log('HomePage收到WebSocket消息:', message)
-  //   
-  //   switch (message.type) {
-  //     case 'task_progress_update':
-  //       console.log('📊 收到任务进度更新:', message)
-  //       // 刷新项目列表以获取最新状态
-  //       loadProjects()
-  //       break
-  //       
-  //     case 'project_update':
-  //       console.log('📊 收到项目更新:', message)
-  //       // 刷新项目列表以获取最新状态
-  //       loadProjects()
-  //       break
-  //       
-  //     default:
-  //       console.log('忽略未知类型的WebSocket消息:', (message as any).type)
-  //   }
-  // }
+  const hasActiveProjects = projects.some(
+    (p) => p.status === 'pending' || p.status === 'processing'
+  )
 
-  // const { isConnected, syncSubscriptions } = useWebSocket({
-  //   userId: 'homepage-user',
-  //   onMessage: handleWebSocketMessage
-  // })
-
-  // 使用项目轮询Hook
+  // 使用项目轮询Hook（下载/字幕阶段加快刷新）
   const { refreshNow } = useProjectPolling({
     onProjectsUpdate: (updatedProjects) => {
       setProjects(updatedProjects || [])
     },
     enabled: true,
-    interval: 10000 // 10秒轮询一次
+    interval: hasActiveProjects ? 2500 : 15000
   })
 
   useEffect(() => {

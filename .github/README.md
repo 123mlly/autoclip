@@ -239,7 +239,9 @@ autoclip/
 生产镜像把代码打进镜像，需重新构建：`docker compose build autoclip && docker compose up -d`。开发热更新请用 `./docker-start.sh dev`。
 
 **YouTube 下载失败？**  
-yt-dlp 常需浏览器 Cookie；本机环境更易复现，可参考 yt-dlp 文档配置 cookies。
+yt-dlp 常需登录 Cookie。**Docker 内无法读取本机 Chrome**：在链接导入页上传从已登录 youtube.com 导出的 `cookies.txt`（扩展如 Get cookies.txt LOCALLY），文件保存在 `data/cookies/youtube.txt`。本机模式可选浏览器 Cookie。Cookie 过期后需重新导出上传。
+
+若日志出现 `n challenge solving failed` / `Only images are available`：生产镜像需带 **Node.js ≥ 20**（当前 Dockerfile 已从 `node:22` 拷入）。请重建镜像：`docker compose build autoclip && docker compose up -d`，并确认容器内 `node -v`。
 
 **YouTube 投稿？**  
 在 Google Cloud 创建 OAuth 客户端，将 Client ID/Secret 写入 `.env`，回调地址与 `YOUTUBE_REDIRECT_URI` 一致。

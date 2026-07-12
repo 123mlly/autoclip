@@ -237,7 +237,9 @@ First builds pull PyTorch and other large deps. If apt returns `502` or cannot r
 Prod images bake in the code—rebuild: `docker compose build autoclip && docker compose up -d`. For hot reload use `./docker-start.sh dev`.
 
 **YouTube download fails?**  
-yt-dlp often needs browser cookies; see yt-dlp docs.
+yt-dlp often needs login cookies. **Docker cannot read host Chrome cookies**—on the link-import page, upload a `cookies.txt` exported from a logged-in youtube.com session (e.g. Get cookies.txt LOCALLY). It is stored as `data/cookies/youtube.txt`. Locally you can also pick a browser. Re-export when cookies expire.
+
+If logs show `n challenge solving failed` / `Only images are available`, the image needs **Node.js ≥ 20** (Dockerfile copies from `node:22`). Rebuild: `docker compose build autoclip && docker compose up -d`, then check `node -v` inside the container.
 
 **YouTube upload?**  
 Create a Google Cloud OAuth client, put ID/secret in `.env`, match `YOUTUBE_REDIRECT_URI`.

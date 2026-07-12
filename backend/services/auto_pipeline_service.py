@@ -37,94 +37,108 @@ class AutoPipelineService:
         try:
             logger.info(f"自动启动项目流水线: {project_id}")
             
-            # 检查项目是否已经在处理中
+            # 进程内快速去重
             if project_id in self.processing_projects:
                 logger.warning(f"项目 {project_id} 已在处理中，跳过")
                 return {"status": "skipped", "message": "项目已在处理中"}
             
-            # 标记项目为处理中
-            self.processing_projects.add(project_id)
-            
-            # 获取项目信息
             db = SessionLocal()
             try:
                 project = db.query(Project).filter(Project.id == project_id).first()
                 if not project:
                     raise ValueError(f"项目 {project_id} 不存在")
                 
-                # 检查项目状态
+                # 仅 PENDING 自动启动；PROCESSING 说明已有流水线
+                if project.status == ProjectStatus.PROCESSING:
+                    logger.info(f"项目 {project_id} 已在处理中，跳过自动启动")
+                    return {"status": "skipped", "message": "项目已在处理中"}
                 if project.status != ProjectStatus.PENDING:
                     logger.info(f"项目 {project_id} 状态为 {project.status}，跳过自动启动")
                     return {"status": "skipped", "message": f"项目状态为 {project.status}"}
                 
-                # 检查项目文件
                 if not project.video_path:
                     raise ValueError(f"项目 {project_id} 没有视频文件")
                 
-                # 查找字幕文件
                 srt_file = self._find_srt_file(project_id)
                 if not srt_file:
                     logger.warning(f"项目 {project_id} 没有找到字幕文件，将尝试自动生成")
                 
-                # 检查是否已有正在运行的任务
+                # 任意视频处理类 PENDING/RUNNING 任务都视为已在跑（名称不限于「自动…」）
+                from backend.models.task import TaskType
                 existing_task = db.query(Task).filter(
                     Task.project_id == project_id,
-                    Task.name == "自动视频处理流水线",
-                    Task.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING])
+                    Task.task_type == TaskType.VIDEO_PROCESSING,
+                    Task.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING]),
                 ).first()
                 
                 if existing_task:
-                    # 使用现有任务
-                    task = existing_task
-                    logger.info(f"使用现有任务: {task.id}")
-                else:
-                    # 创建新任务记录
-                    task = self._create_processing_task(db, project_id)
-                    if not task:
-                        raise ValueError("创建任务记录失败")
+                    logger.warning(
+                        f"项目 {project_id} 已有流水线任务 {existing_task.id}，跳过重复提交"
+                    )
+                    return {
+                        "status": "skipped",
+                        "message": "流水线已在运行",
+                        "task_id": existing_task.id,
+                        "celery_task_id": existing_task.celery_task_id,
+                    }
                 
-                # 更新项目状态
+                # 通过检查后再标记进程内集合，避免 skip 路径泄漏
+                self.processing_projects.add(project_id)
+                
+                task = self._create_processing_task(db, project_id)
+                if not task:
+                    raise ValueError("创建任务记录失败")
+                
                 project.status = ProjectStatus.PROCESSING
                 project.updated_at = datetime.utcnow()
                 db.commit()
                 
                 logger.info(f"项目 {project_id} 状态已更新为处理中")
                 
-                # 启动进度监控
                 await progress_update_service.start_progress_monitoring(task.id)
                 
-                # 提交Celery任务
                 logger.info(f"准备提交Celery任务: {project_id}")
                 
-                # 查找项目文件路径
                 from ..core.config import get_data_directory
                 data_dir = get_data_directory()
                 project_dir = Path(data_dir) / "projects" / project_id
                 input_video_path = str(project_dir / "raw" / "input.mp4")
                 input_srt_path = str(project_dir / "raw" / "input.srt")
                 
-                # 检查文件是否存在
                 if not Path(input_video_path).exists():
                     raise ValueError(f"视频文件不存在: {input_video_path}")
                 
                 logger.info(f"视频文件: {input_video_path}")
                 logger.info(f"字幕文件: {input_srt_path if Path(input_srt_path).exists() else '不存在'}")
                 
-                # 提交Celery任务
-                task_result = submit_video_pipeline_task(project_id, input_video_path, input_srt_path)
+                task_result = submit_video_pipeline_task(
+                    project_id,
+                    input_video_path,
+                    input_srt_path if Path(input_srt_path).exists() else None,
+                )
                 logger.info(f"Celery任务提交结果: {task_result}")
+                
+                if task_result.get("skipped"):
+                    # 锁被占用：回滚到可重试状态，避免永久卡在 PROCESSING
+                    task.status = TaskStatus.CANCELLED
+                    project.status = ProjectStatus.PENDING
+                    db.commit()
+                    self.processing_projects.discard(project_id)
+                    return {
+                        "status": "skipped",
+                        "message": task_result.get("message", "流水线已在运行"),
+                    }
                 
                 if task_result.get('success'):
                     celery_task_id = task_result['task_id']
                     logger.info(f"Celery任务已提交: {celery_task_id}")
                     
-                    # 更新任务记录
                     task.celery_task_id = celery_task_id
                     task.status = TaskStatus.RUNNING
                     task.started_at = datetime.utcnow()
                     db.commit()
                     
-                    result = {
+                    return {
                         "status": "started",
                         "message": "流水线处理已启动",
                         "project_id": project_id,
@@ -135,17 +149,13 @@ class AutoPipelineService:
                     error_msg = task_result.get('error', '未知错误')
                     raise ValueError(f"提交Celery任务失败: {error_msg}")
                 
-                return result
-                
             finally:
                 db.close()
                 
         except Exception as e:
             logger.error(f"自动启动流水线失败: {e}")
-            # 移除处理中标记
             self.processing_projects.discard(project_id)
             
-            # 更新项目状态为失败
             await self._mark_project_failed(project_id, str(e))
             
             return {"status": "failed", "message": f"启动失败: {str(e)}"}
@@ -177,10 +187,11 @@ class AutoPipelineService:
     def _create_processing_task(self, db: Session, project_id: str) -> Optional[Task]:
         """创建处理任务记录"""
         try:
+            from backend.models.task import TaskType
             task = Task(
                 project_id=project_id,
                 name="自动视频处理流水线",
-                task_type="video_processing",
+                task_type=TaskType.VIDEO_PROCESSING,
                 status=TaskStatus.PENDING,
                 progress=0.0,
                 current_step="初始化",

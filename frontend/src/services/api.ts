@@ -116,6 +116,17 @@ export interface BilibiliDownloadTask {
   updated_at: string
 }
 
+/** 创建下载任务的响应（新格式含 project_id + task_id） */
+export interface DownloadTaskCreateResponse {
+  project_id?: string
+  task_id?: string
+  id?: string
+  status?: string
+  message?: string
+  error_message?: string
+  progress?: number
+}
+
 // 设置相关API
 export const settingsApi = {
   // 获取系统配置
@@ -479,7 +490,7 @@ export const bilibiliApi = {
   },
 
   // 解析YouTube视频信息
-  parseYouTubeVideoInfo: async (url: string, browser?: string): Promise<{success: boolean, video_info: BilibiliVideoInfo, used_browser?: string | null}> => {
+  parseYouTubeVideoInfo: async (url: string, browser?: string): Promise<{success: boolean, video_info: BilibiliVideoInfo, used_browser?: string | null, used_cookiefile?: boolean}> => {
     const formData = new FormData()
     formData.append('url', url)
     if (browser) {
@@ -492,13 +503,44 @@ export const bilibiliApi = {
     })
   },
 
+  getYouTubeCookiesStatus: async (): Promise<{
+    configured: boolean
+    path: string
+    size?: number
+    updated_at?: string
+    in_docker?: boolean
+    hint?: string
+  }> => {
+    return api.get('/youtube/cookies/status')
+  },
+
+  uploadYouTubeCookies: async (file: File): Promise<{
+    success: boolean
+    configured: boolean
+    path: string
+    size: number
+    message: string
+  }> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post('/youtube/cookies', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+  },
+
+  deleteYouTubeCookies: async (): Promise<{ success: boolean; configured: boolean }> => {
+    return api.delete('/youtube/cookies')
+  },
+
   // 创建B站下载任务
-  createDownloadTask: async (data: BilibiliDownloadRequest): Promise<BilibiliDownloadTask> => {
+  createDownloadTask: async (data: BilibiliDownloadRequest): Promise<DownloadTaskCreateResponse & Partial<BilibiliDownloadTask>> => {
     return api.post('/bilibili/download', data)
   },
 
   // 创建YouTube下载任务
-  createYouTubeDownloadTask: async (data: BilibiliDownloadRequest): Promise<BilibiliDownloadTask> => {
+  createYouTubeDownloadTask: async (data: BilibiliDownloadRequest): Promise<DownloadTaskCreateResponse & Partial<BilibiliDownloadTask>> => {
     return api.post('/youtube/download', data)
   },
 

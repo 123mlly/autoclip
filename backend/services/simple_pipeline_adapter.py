@@ -26,31 +26,29 @@ class SimplePipelineAdapter:
         
     async def _generate_subtitle_automatically(self, video_path: str, metadata_dir: Path) -> Path:
         """
-        自动生成字幕文件
-        
-        Args:
-            video_path: 视频文件路径
-            metadata_dir: 元数据目录
-            
-        Returns:
-            生成的SRT文件路径，如果失败返回None
+        自动生成字幕文件；成功后同步到 raw/input.srt，避免重复 Whisper。
         """
         try:
             logger.info(f"开始为视频 {video_path} 自动生成字幕")
             
-            # 更新进度
             from backend.services.simple_progress import emit_progress
             emit_progress(self.project_id, "SUBTITLE", "正在使用AI生成字幕...", subpercent=25)
             
-            # 使用本地 Whisper 生成字幕
             try:
                 from backend.utils.speech_recognizer import generate_subtitle_for_video
-                from pathlib import Path
+                import shutil
                 
                 video_file_path = Path(video_path)
                 if not video_file_path.exists():
                     logger.error(f"视频文件不存在: {video_path}")
                     return None
+                
+                # 若 raw/input.srt 已存在，直接复用
+                raw_srt = video_file_path.parent / "input.srt"
+                if raw_srt.exists() and raw_srt.stat().st_size > 0:
+                    logger.info(f"复用已有字幕: {raw_srt}")
+                    emit_progress(self.project_id, "SUBTITLE", "使用已有字幕", subpercent=40)
+                    return raw_srt
                 
                 logger.info("尝试使用 Whisper 本地模型生成字幕")
                 output_path = metadata_dir / f"{video_file_path.stem}.srt"
@@ -62,10 +60,18 @@ class SimplePipelineAdapter:
                     language="auto"
                 )
                 
-                if srt_path and srt_path.exists():
+                if srt_path and Path(srt_path).exists():
+                    srt_path = Path(srt_path)
                     logger.info(f"Whisper生成字幕成功: {srt_path}")
+                    # 落到标准路径，供后续重试/二次启动直接使用
+                    try:
+                        if srt_path.resolve() != raw_srt.resolve():
+                            shutil.copy2(srt_path, raw_srt)
+                            logger.info(f"字幕已同步到: {raw_srt}")
+                    except Exception as copy_err:
+                        logger.warning(f"同步字幕到 raw/input.srt 失败: {copy_err}")
                     emit_progress(self.project_id, "SUBTITLE", "AI字幕生成完成", subpercent=40)
-                    return srt_path
+                    return raw_srt if raw_srt.exists() else srt_path
                 else:
                     logger.warning("Whisper生成字幕失败")
                     
@@ -115,21 +121,27 @@ class SimplePipelineAdapter:
             # 阶段2: 字幕处理
             emit_progress(self.project_id, "SUBTITLE", "开始字幕处理")
             
-            # Step 1: 大纲提取
+            # Step 1: 大纲提取 — 优先 raw/input.srt，避免重复 Whisper
             logger.info("执行Step 1: 大纲提取")
-            if input_srt_path and Path(input_srt_path).exists():
-                logger.info(f"使用现有SRT文件: {input_srt_path}")
-                outlines = run_step1_outline(Path(input_srt_path), metadata_dir=metadata_dir)
+            project_dir = get_project_directory(self.project_id)
+            raw_srt = project_dir / "raw" / "input.srt"
+            srt_candidate = None
+            if raw_srt.exists() and raw_srt.stat().st_size > 0:
+                srt_candidate = raw_srt
+            elif input_srt_path and Path(input_srt_path).exists():
+                srt_candidate = Path(input_srt_path)
+
+            if srt_candidate:
+                logger.info(f"使用现有SRT文件: {srt_candidate}")
+                outlines = run_step1_outline(srt_candidate, metadata_dir=metadata_dir)
             else:
                 logger.warning("没有SRT文件，尝试自动生成字幕")
-                # 尝试自动生成字幕
                 srt_path = await self._generate_subtitle_automatically(input_video_path, metadata_dir)
-                if srt_path and srt_path.exists():
+                if srt_path and Path(srt_path).exists():
                     logger.info(f"自动生成字幕成功: {srt_path}")
-                    outlines = run_step1_outline(srt_path, metadata_dir=metadata_dir)
+                    outlines = run_step1_outline(Path(srt_path), metadata_dir=metadata_dir)
                 else:
                     logger.warning("自动生成字幕失败，创建空大纲")
-                    # 创建一个空的大纲文件
                     outlines = []
                     outline_file = metadata_dir / "step1_outline.json"
                     import json

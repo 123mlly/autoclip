@@ -69,8 +69,13 @@ RUN sed -i "s/deb.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list.d/debian.
     && apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+
+# yt-dlp EJS 求解 YouTube n challenge 需要 Node ≥ 20（前端构建阶段的 Node 不会进入本镜像）
+COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+RUN node -v
 
 WORKDIR /app
 

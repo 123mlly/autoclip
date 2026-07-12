@@ -15,8 +15,9 @@ RUN cp /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/debian.sou
     && apt-get install -y build-essential curl ffmpeg git \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. 安装 Node.js
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && apt-get install -y nodejs
+# 2. 安装 Node.js 22（yt-dlp EJS / YouTube n challenge 需要 ≥ 20）
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs \
+    && node -v
 
 # 3. 复制 Python 依赖
 COPY requirements.txt ./

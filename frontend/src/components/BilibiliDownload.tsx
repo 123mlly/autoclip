@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { Button, message, Progress, Input, Card, Typography, Space, Spin, Select } from 'antd'
-import { DownloadOutlined } from '@ant-design/icons'
-import { projectApi, bilibiliApi, VideoCategory, BilibiliDownloadTask } from '../services/api'
+import { Button, message, Progress, Input, Card, Typography, Space, Spin, Select, Upload, Tag } from 'antd'
+import { DownloadOutlined, UploadOutlined, DeleteOutlined } from '@ant-design/icons'
+import { projectApi, bilibiliApi, VideoCategory, BilibiliDownloadTask, DownloadTaskCreateResponse } from '../services/api'
 import { useProjectStore } from '../store/useProjectStore'
 
 const { Text } = Typography
@@ -25,8 +25,26 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
   const [videoInfo, setVideoInfo] = useState<any>(null)
   const [parsing, setParsing] = useState(false)
   const [error, setError] = useState('')
+  const [cookieStatus, setCookieStatus] = useState<{
+    configured: boolean
+    path: string
+    size?: number
+    updated_at?: string
+    in_docker?: boolean
+    hint?: string
+  } | null>(null)
+  const [cookieUploading, setCookieUploading] = useState(false)
   
   const { addProject } = useProjectStore()
+
+  const refreshCookieStatus = async () => {
+    try {
+      const status = await bilibiliApi.getYouTubeCookiesStatus()
+      setCookieStatus(status)
+    } catch (e) {
+      console.error('Failed to load YouTube cookie status:', e)
+    }
+  }
 
   // 加载视频分类配置
   useEffect(() => {
@@ -49,6 +67,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
     }
 
     loadCategories()
+    refreshCookieStatus()
   }, [])
 
   // 清理轮询
@@ -105,10 +124,10 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
     setError('') // 清除之前的错误信息
     
     try {
-      let response
+      let response: { video_info?: any; used_browser?: string | null } | undefined
       if (videoType === 'bilibili') {
         response = await bilibiliApi.parseVideoInfo(url.trim(), selectedBrowser)
-      } else if (videoType === 'youtube') {
+      } else {
         response = await bilibiliApi.parseYouTubeVideoInfo(url.trim(), selectedBrowser || undefined)
         // 后端自动检测到浏览器时，同步到前端选择
         if (response?.used_browser && !selectedBrowser) {
@@ -116,7 +135,11 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
         }
       }
       
-      const parsedVideoInfo = response.video_info
+      const parsedVideoInfo = response?.video_info
+      if (!parsedVideoInfo) {
+        setError('未获取到视频信息')
+        return
+      }
       
       setVideoInfo(parsedVideoInfo)
       setError('') // 解析成功，清除错误信息
@@ -144,7 +167,15 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
     }
   }
 
-  const startPolling = (taskId: string, videoType: 'bilibili' | 'youtube') => {
+  const formatDownloadError = (raw?: string) => {
+    const tip = String(raw || '未知错误')
+    if (/bot|sign in|登录|cookie|cookies\.txt|认证/i.test(tip)) {
+      return `${tip}\n请重新上传有效的 YouTube cookies.txt 后再试。`
+    }
+    return tip
+  }
+
+  const startPolling = (taskId: string, videoType: 'bilibili' | 'youtube', projectId?: string) => {
     const interval = setInterval(async () => {
       try {
         let task
@@ -159,20 +190,32 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
           clearInterval(interval)
           setPollingInterval(null)
           setDownloading(false)
-          message.success('视频下载完成！')
+          message.success('视频下载完成，已提交后台处理')
+          refreshCookieStatus()
           
-          if (task.project_id && onDownloadSuccess) {
-            onDownloadSuccess(task.project_id)
+          const pid = task.project_id || projectId
+          if (pid && onDownloadSuccess) {
+            onDownloadSuccess(pid)
           }
           
-          // 重置状态
           resetForm()
         } else if (task.status === 'failed') {
           clearInterval(interval)
           setPollingInterval(null)
           setDownloading(false)
-          message.error(`下载失败: ${task.error_message || '未知错误'}`)
-          resetForm()
+          const errText = formatDownloadError(task.error_message)
+          setError(errText)
+          message.error({
+            content: errText,
+            duration: 8,
+          })
+          if (videoType === 'youtube') {
+            refreshCookieStatus()
+          }
+          if (projectId && onDownloadSuccess) {
+            // 刷新列表，让失败项目状态可见
+            onDownloadSuccess(projectId)
+          }
         }
       } catch (error) {
         console.error('轮询任务状态失败:', error)
@@ -195,6 +238,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
     }
 
     setDownloading(true)
+    setError('')
     
     try {
       const requestBody: any = {
@@ -210,37 +254,59 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
         requestBody.browser = selectedBrowser
       }
 
-      let response
+      let response: DownloadTaskCreateResponse & Partial<BilibiliDownloadTask>
       if (videoType === 'bilibili') {
         response = await bilibiliApi.createDownloadTask(requestBody)
       } else {
         response = await bilibiliApi.createYouTubeDownloadTask(requestBody)
       }
       
-      // 检查响应是否包含项目ID（新的优化后的响应格式）
+      const platformName = videoType === 'bilibili' ? 'B站' : 'YouTube'
+
+      // 新格式：先建项目，再轮询后台下载任务（失败时要提示，尤其是 Cookie/bot）
       if (response.project_id) {
-        // 新格式：项目已创建，立即重置表单
-        setCurrentTask(null)
-        setDownloading(false)
-        resetForm()
-        
-        // 显示统一的成功提示
-        const platformName = videoType === 'bilibili' ? 'B站' : 'YouTube'
-        message.success(`${platformName}项目创建成功，正在后台下载中，您可以继续添加其他项目`)
-        
+        message.info(`${platformName}项目已创建，正在后台下载…`)
         if (onDownloadSuccess) {
           onDownloadSuccess(response.project_id)
         }
+        if (response.task_id) {
+          setCurrentTask({
+            id: response.task_id,
+            status: 'processing',
+            progress: 0,
+            project_id: response.project_id,
+          } as any)
+          startPolling(response.task_id, videoType, response.project_id)
+        } else {
+          setDownloading(false)
+          resetForm()
+          message.success(`${platformName}项目创建成功`)
+        }
+      } else if (response.id) {
+        const legacyTask = {
+          ...response,
+          id: response.id,
+          status: (response.status as BilibiliDownloadTask['status']) || 'processing',
+          progress: response.progress ?? 0,
+          url: response.url || url.trim(),
+          project_name: response.project_name || projectName || '',
+          created_at: response.created_at || new Date().toISOString(),
+          updated_at: response.updated_at || new Date().toISOString(),
+        } satisfies BilibiliDownloadTask
+        setCurrentTask(legacyTask)
+        startPolling(response.id, videoType, response.project_id)
       } else {
-        // 旧格式：继续轮询任务状态
-        setCurrentTask(response)
-        startPolling(response.id, videoType)
+        setDownloading(false)
+        message.warning('未返回任务 ID，请到项目列表查看下载状态')
       }
       
     } catch (error: any) {
       setDownloading(false)
-      const errorMessage = error.response?.data?.detail || error.message || '创建下载任务失败'
-      message.error(errorMessage)
+      const errorMessage = formatDownloadError(
+        error.response?.data?.detail || error.message || '创建下载任务失败'
+      )
+      setError(errorMessage)
+      message.error({ content: errorMessage, duration: 8 })
     }
   }
 
@@ -334,24 +400,98 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
             {getVideoType(url.trim()) === 'youtube' && (
               <div style={{ marginTop: '12px' }}>
                 <Text style={{ color: '#14181f', marginBottom: '8px', display: 'block', fontSize: '14px', fontWeight: 500 }}>
-                  浏览器 Cookie（YouTube 推荐）
+                  YouTube 登录态（Docker 推荐上传 cookies.txt）
                 </Text>
-                <Select
-                  placeholder="选择已登录 YouTube 的浏览器"
-                  value={selectedBrowser || undefined}
-                  onChange={(value) => setSelectedBrowser(value || '')}
-                  allowClear
-                  style={{ width: '100%' }}
-                  disabled={downloading || parsing}
-                >
-                  <Select.Option value="chrome">Chrome</Select.Option>
-                  <Select.Option value="safari">Safari</Select.Option>
-                  <Select.Option value="edge">Edge</Select.Option>
-                  <Select.Option value="firefox">Firefox</Select.Option>
-                </Select>
-                <Text style={{ color: '#6b7585', fontSize: '12px', marginTop: '8px', display: 'block', lineHeight: 1.5 }}>
-                  YouTube 常需登录态。请先在该浏览器打开 youtube.com 并登录，再选择对应浏览器后重新解析。
+                <div style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                  alignItems: 'center',
+                  marginBottom: '8px'
+                }}>
+                  {cookieStatus?.configured ? (
+                    <Tag color="success">已配置 cookies.txt</Tag>
+                  ) : (
+                    <Tag color="warning">未配置 cookies.txt</Tag>
+                  )}
+                  {cookieStatus?.in_docker && (
+                    <Tag>Docker 环境</Tag>
+                  )}
+                  {cookieStatus?.updated_at && (
+                    <Text style={{ color: '#6b7585', fontSize: '12px' }}>
+                      更新于 {new Date(cookieStatus.updated_at).toLocaleString()}
+                    </Text>
+                  )}
+                </div>
+                <Space wrap style={{ marginBottom: '8px' }}>
+                  <Upload
+                    accept=".txt,.cookies,text/plain"
+                    showUploadList={false}
+                    disabled={downloading || parsing || cookieUploading}
+                    beforeUpload={async (file) => {
+                      setCookieUploading(true)
+                      try {
+                        await bilibiliApi.uploadYouTubeCookies(file)
+                        message.success('cookies.txt 已上传，可重新解析')
+                        await refreshCookieStatus()
+                      } catch (e: any) {
+                        message.error(e?.response?.data?.detail || e?.message || '上传失败')
+                      } finally {
+                        setCookieUploading(false)
+                      }
+                      return false
+                    }}
+                  >
+                    <Button icon={<UploadOutlined />} loading={cookieUploading} disabled={downloading || parsing}>
+                      上传 cookies.txt
+                    </Button>
+                  </Upload>
+                  {cookieStatus?.configured && (
+                    <Button
+                      icon={<DeleteOutlined />}
+                      disabled={downloading || parsing || cookieUploading}
+                      onClick={async () => {
+                        try {
+                          await bilibiliApi.deleteYouTubeCookies()
+                          message.success('已删除 cookies.txt')
+                          await refreshCookieStatus()
+                        } catch (e: any) {
+                          message.error(e?.response?.data?.detail || e?.message || '删除失败')
+                        }
+                      }}
+                    >
+                      清除
+                    </Button>
+                  )}
+                </Space>
+                <Text style={{ color: '#6b7585', fontSize: '12px', display: 'block', lineHeight: 1.5, marginBottom: '12px' }}>
+                  {cookieStatus?.in_docker
+                    ? 'Docker 内无法读取本机 Chrome。请用扩展「Get cookies.txt LOCALLY」从已登录的 youtube.com 导出后上传。'
+                    : '也可上传 cookies.txt；本机还可直接选择已登录的浏览器。'}
                 </Text>
+                {!cookieStatus?.in_docker && (
+                  <>
+                    <Text style={{ color: '#14181f', marginBottom: '8px', display: 'block', fontSize: '14px', fontWeight: 500 }}>
+                      或选择本机浏览器 Cookie
+                    </Text>
+                    <Select
+                      placeholder="选择已登录 YouTube 的浏览器"
+                      value={selectedBrowser || undefined}
+                      onChange={(value) => setSelectedBrowser(value || '')}
+                      allowClear
+                      style={{ width: '100%' }}
+                      disabled={downloading || parsing || !!cookieStatus?.configured}
+                    >
+                      <Select.Option value="chrome">Chrome</Select.Option>
+                      <Select.Option value="safari">Safari</Select.Option>
+                      <Select.Option value="edge">Edge</Select.Option>
+                      <Select.Option value="firefox">Firefox</Select.Option>
+                    </Select>
+                    <Text style={{ color: '#6b7585', fontSize: '12px', marginTop: '8px', display: 'block', lineHeight: 1.5 }}>
+                      已上传 cookies.txt 时将优先使用文件，无需再选浏览器。
+                    </Text>
+                  </>
+                )}
               </div>
             )}
           </div>

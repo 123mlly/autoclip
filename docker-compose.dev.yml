@@ -37,6 +37,7 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - DATABASE_URL=sqlite:///./data/autoclip.db
       - ENVIRONMENT=development
+      - RUNNING_IN_DOCKER=true
       - DEBUG=true
       - LOG_LEVEL=DEBUG
     depends_on:
@@ -72,6 +73,7 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - DATABASE_URL=sqlite:///./data/autoclip.db
       - ENVIRONMENT=development
+      - RUNNING_IN_DOCKER=true
       - DEBUG=true
       - LOG_LEVEL=DEBUG
     depends_on:

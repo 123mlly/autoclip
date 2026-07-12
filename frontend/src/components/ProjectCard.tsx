@@ -2,15 +2,13 @@ import React, { useState, useEffect } from 'react'
 import { Card, Tag, Button, Typography, Progress, Popconfirm, message, Tooltip } from 'antd'
 import { PlayCircleOutlined, DeleteOutlined, EyeOutlined, DownloadOutlined, ReloadOutlined, LoadingOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { Project } from '../store/useProjectStore'
+import { Project, useProjectStore } from '../store/useProjectStore'
 import { projectApi } from '../services/api'
 import { UnifiedStatusBar } from './UnifiedStatusBar'
-// import { 
-//   getProjectStatusConfig, 
-//   calculateProjectProgress, 
-//   normalizeProjectStatus,
-//   getProgressStatus 
-// } from '../utils/statusUtils'
+import {
+  isBusyCardStatus,
+  resolveProjectCardDisplay,
+} from '../utils/projectStatusDisplay'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import timezone from 'dayjs/plugin/timezone'
@@ -305,39 +303,11 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
     return () => clearInterval(interval)
   }, [logs.length])
 
-  const getStatusColor = (status: Project['status']) => {
-    switch (status) {
-      case 'completed': return 'success'
-      case 'processing': return 'processing'
-      case 'error': return 'error'
-      case 'uploading': return 'default'
-      default: return 'default'
-    }
-  }
-
-  // 检查是否是等待处理状态 - pending状态显示为导入中
-  const isImporting = project.status === 'pending'
-  
-  // 状态标准化处理 - pending状态显示为导入中
-  const normalizedStatus = project.status === 'error' ? 'failed' : 
-                          isImporting ? 'importing' : project.status
-  
-  // 调试信息
-  console.log('ProjectCard Debug:', {
-    projectId: project.id,
-    projectStatus: project.status,
-    isImporting,
-    normalizedStatus,
-    processingConfig: project.processing_config
-  })
-  
-  // 计算进度百分比
-  const progressPercent = project.status === 'completed' ? 100 : 
-                         project.status === 'failed' ? 0 :
-                         isImporting ? 20 : // 导入中显示20%进度
-                         project.current_step && project.total_steps ? 
-                         Math.round((project.current_step / project.total_steps) * 100) : 
-                         project.status === 'processing' ? 10 : 0
+  const updateProject = useProjectStore((s) => s.updateProject)
+  const display = resolveProjectCardDisplay(project)
+  const normalizedStatus = display.status
+  const progressPercent = display.percent
+  const isBusy = isBusyCardStatus(display.status)
 
   const handleRetry = async () => {
     if (isRetrying) return
@@ -405,9 +375,9 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
             overflow: 'hidden'
           }}
           onClick={() => {
-            // 导入中状态的项目不能点击进入详情页
+            // 下载/字幕/排队阶段暂不可进详情
             if (project.status === 'pending') {
-              message.warning('项目正在导入中，请稍后再查看详情')
+              message.warning(`项目正在${display.label}，请稍后再查看详情`)
               return
             }
             
@@ -572,7 +542,11 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
                 <>
                   <div style={{ display: 'flex', gap: 6 }}>
                     {/* 重试按钮 - 在处理中和等待中状态显示，允许用户重新提交任务 */}
-                    {(normalizedStatus === 'processing' || normalizedStatus === 'importing' || project.status === 'pending') && (
+                    {(normalizedStatus === 'processing' ||
+                      normalizedStatus === 'preparing' ||
+                      normalizedStatus === 'queued' ||
+                      normalizedStatus === 'downloading' ||
+                      project.status === 'pending') && (
                       <Tooltip title={project.status === 'pending' ? "开始处理" : "重新提交任务"}>
                         <Button
                           type="text"
@@ -670,8 +644,8 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
           </div>
           
           {/* 状态和统计信息 */}
-          {(normalizedStatus === 'importing' || normalizedStatus === 'processing' || normalizedStatus === 'failed') ? (
-            // 导入中、处理中、失败：只显示状态块，居中展示
+          {(isBusy || normalizedStatus === 'failed') ? (
+            // 忙碌/失败：只显示状态块
             <div style={{ 
               display: 'flex', 
               justifyContent: 'center',
@@ -681,12 +655,47 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
                 <UnifiedStatusBar
                   projectId={project.id}
                   status={normalizedStatus}
-                  downloadProgress={progressPercent}
+                  statusLabel={display.label}
+                  downloadProgress={progressPercent ?? undefined}
                   onStatusChange={(newStatus) => {
-                    console.log(`项目 ${project.id} 状态变化: ${normalizedStatus} -> ${newStatus}`)
+                    if (
+                      newStatus === 'processing' ||
+                      newStatus === 'completed' ||
+                      newStatus === 'failed'
+                    ) {
+                      updateProject(project.id, {
+                        status: newStatus as Project['status'],
+                      })
+                      return
+                    }
+                    if (newStatus === 'preparing' || newStatus === 'queued') {
+                      updateProject(project.id, {
+                        processing_config: {
+                          ...project.processing_config,
+                          download_status:
+                            newStatus === 'preparing' ? 'preparing' : 'completed',
+                          download_progress: 100,
+                          download_message:
+                            newStatus === 'preparing'
+                              ? project.processing_config?.download_message ||
+                                '正在生成字幕...'
+                              : project.processing_config?.download_message ||
+                                '排队处理中',
+                        },
+                      })
+                    }
                   }}
                   onDownloadProgressUpdate={(progress) => {
-                    console.log(`项目 ${project.id} 下载进度更新: ${progress}%`)
+                    updateProject(project.id, {
+                      processing_config: {
+                        ...project.processing_config,
+                        download_progress: progress,
+                        download_status:
+                          progress >= 100
+                            ? 'completed'
+                            : project.processing_config?.download_status || 'downloading',
+                      },
+                    })
                   }}
                 />
               </div>
@@ -703,12 +712,47 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
                 <UnifiedStatusBar
                   projectId={project.id}
                   status={normalizedStatus}
-                  downloadProgress={progressPercent}
+                  statusLabel={display.label}
+                  downloadProgress={progressPercent ?? undefined}
                   onStatusChange={(newStatus) => {
-                    console.log(`项目 ${project.id} 状态变化: ${normalizedStatus} -> ${newStatus}`)
+                    if (
+                      newStatus === 'processing' ||
+                      newStatus === 'completed' ||
+                      newStatus === 'failed'
+                    ) {
+                      updateProject(project.id, {
+                        status: newStatus as Project['status'],
+                      })
+                      return
+                    }
+                    if (newStatus === 'preparing' || newStatus === 'queued') {
+                      updateProject(project.id, {
+                        processing_config: {
+                          ...project.processing_config,
+                          download_status:
+                            newStatus === 'preparing' ? 'preparing' : 'completed',
+                          download_progress: 100,
+                          download_message:
+                            newStatus === 'preparing'
+                              ? project.processing_config?.download_message ||
+                                '正在生成字幕...'
+                              : project.processing_config?.download_message ||
+                                '排队处理中',
+                        },
+                      })
+                    }
                   }}
                   onDownloadProgressUpdate={(progress) => {
-                    console.log(`项目 ${project.id} 下载进度更新: ${progress}%`)
+                    updateProject(project.id, {
+                      processing_config: {
+                        ...project.processing_config,
+                        download_progress: progress,
+                        download_status:
+                          progress >= 100
+                            ? 'completed'
+                            : project.processing_config?.download_status || 'downloading',
+                      },
+                    })
                   }}
                 />
               </div>

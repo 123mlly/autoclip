@@ -11,7 +11,7 @@ from backend.core.database import get_db
 from backend.services.project_service import ProjectService
 from backend.services.processing_service import ProcessingService
 from backend.services.websocket_notification_service import WebSocketNotificationService
-from backend.tasks.processing import process_video_pipeline
+from backend.utils.task_submission_utils import submit_video_pipeline_task
 from backend.core.websocket_manager import manager as websocket_manager
 from backend.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectResponse, ProjectListResponse, ProjectFilter,
@@ -427,6 +427,24 @@ async def start_processing(
             else:
                 srt_path = None
         
+        # 检查是否已有运行中的流水线
+        from ...models.task import Task, TaskStatus, TaskType
+        from ...utils.task_submission_utils import submit_video_pipeline_task
+        existing = (
+            processing_service.db.query(Task)
+            .filter(
+                Task.project_id == project_id,
+                Task.task_type == TaskType.VIDEO_PROCESSING,
+                Task.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING]),
+            )
+            .first()
+        )
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"流水线已在运行中 (task={existing.id})",
+            )
+
         # 更新项目状态为处理中
         project_service.update_project_status(project_id, "processing")
         
@@ -436,24 +454,31 @@ async def start_processing(
             message="开始视频处理流程"
         )
         
-        # 提交Celery任务
-        celery_task = process_video_pipeline.delay(
-            project_id=project_id,
-            input_video_path=str(video_path),
-            input_srt_path=str(srt_path) if srt_path else None
+        task_submit = submit_video_pipeline_task(
+            project_id,
+            str(video_path),
+            str(srt_path) if srt_path else None,
         )
+        if task_submit.get("skipped") or not task_submit.get("success"):
+            project_service.update_project_status(project_id, "pending")
+            raise HTTPException(
+                status_code=409,
+                detail=task_submit.get("message") or task_submit.get("error") or "无法提交流水线",
+            )
         
         # 创建处理任务记录
         task_result = processing_service._create_processing_task(
             project_id=project_id,
             task_type="VIDEO_PROCESSING"
         )
+        task_result.celery_task_id = task_submit["task_id"]
+        processing_service.db.commit()
         
         return {
             "message": "Processing started successfully",
             "project_id": project_id,
             "task_id": task_result.id,
-            "celery_task_id": celery_task.id,
+            "celery_task_id": task_submit["task_id"],
             "status": "processing"
         }
         
@@ -489,6 +514,32 @@ async def retry_processing(
         # 检查项目状态 - 允许失败、完成、处理中和等待中状态重试
         if project.status.value not in ["failed", "completed", "processing", "pending"]:
             raise HTTPException(status_code=400, detail="Project is not in failed, completed, processing, or pending status")
+
+        from ...models.task import Task, TaskStatus, TaskType
+        from ...utils.task_submission_utils import (
+            submit_video_pipeline_task,
+            release_pipeline_lock,
+        )
+
+        # 仍有进行中的任务则拒绝（避免再起一个 Whisper）
+        active = (
+            processing_service.db.query(Task)
+            .filter(
+                Task.project_id == project_id,
+                Task.task_type == TaskType.VIDEO_PROCESSING,
+                Task.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING]),
+            )
+            .first()
+        )
+        if active and project.status.value == "processing":
+            raise HTTPException(
+                status_code=409,
+                detail=f"流水线仍在运行，请等待完成后再重试 (task={active.id})",
+            )
+
+        # 清理可能残留的锁（失败/卡死场景）
+        if project.status.value in ("failed", "completed", "pending") or not active:
+            release_pipeline_lock(project_id)
         
         # 重置项目状态
         project_service.update_project_status(project_id, "pending")
@@ -604,12 +655,19 @@ async def retry_processing(
         # 字幕文件是可选的
         srt_path_str = str(srt_path) if srt_path.exists() else None
         
-        # 提交Celery任务 - 使用字符串类型的project_id
-        celery_task = process_video_pipeline.delay(
-            project_id=project_id,
-            input_video_path=str(video_path),
-            input_srt_path=srt_path_str
+        project_service.update_project_status(project_id, "processing")
+
+        task_submit = submit_video_pipeline_task(
+            project_id,
+            str(video_path),
+            srt_path_str,
         )
+        if task_submit.get("skipped") or not task_submit.get("success"):
+            project_service.update_project_status(project_id, "pending")
+            raise HTTPException(
+                status_code=409,
+                detail=task_submit.get("message") or task_submit.get("error") or "无法提交流水线",
+            )
         
         # 创建新的处理任务记录
         from ...models.task import TaskType
@@ -619,14 +677,14 @@ async def retry_processing(
         )
         
         # 更新任务的Celery任务ID
-        task_result.celery_task_id = celery_task.id
+        task_result.celery_task_id = task_submit["task_id"]
         processing_service.db.commit()
         
         return {
             "message": "Processing retry started successfully",
             "project_id": project_id,
             "task_id": task_result.id,
-            "celery_task_id": celery_task.id,
+            "celery_task_id": task_submit["task_id"],
             "status": "processing"
         }
         
