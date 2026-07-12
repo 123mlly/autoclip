@@ -1,0 +1,119 @@
+# AutoClip GPU 镜像：Whisper / Celery worker 用 NVIDIA CUDA
+# 无 GPU 的机器请继续使用默认 Dockerfile + docker-compose.yml，不要构建此文件。
+#
+# 构建示例：
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml build celery-worker
+#
+# 依赖：宿主机 NVIDIA 驱动 + NVIDIA Container Toolkit
+
+ARG DEBIAN_MIRROR=mirrors.aliyun.com
+ARG CUDA_IMAGE=nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+ARG TORCH_CUDA_INDEX=https://download.pytorch.org/whl/cu121
+
+# ---------------------------------------------------------------------------
+# 前端构建（与 CPU Dockerfile 一致）
+# ---------------------------------------------------------------------------
+FROM node:18-slim AS frontend-builder
+
+ARG DEBIAN_MIRROR=mirrors.aliyun.com
+WORKDIR /app/frontend
+
+RUN sed -i "s/deb.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
+    && sed -i "s/security.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
+    && sed -i "s/deb.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list 2>/dev/null || true \
+    && sed -i "s/security.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list 2>/dev/null || true \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY frontend/package*.json ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build
+
+# ---------------------------------------------------------------------------
+# Python 依赖：先装 CUDA 版 torch，再装业务依赖与 whisper
+# ---------------------------------------------------------------------------
+FROM ${CUDA_IMAGE} AS backend-builder
+
+ARG TORCH_CUDA_INDEX=https://download.pytorch.org/whl/cu121
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-dev \
+    build-essential \
+    ca-certificates \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir --upgrade pip \
+    && pip3 install --no-cache-dir torch torchaudio --index-url "${TORCH_CUDA_INDEX}"
+
+COPY requirements.txt ./
+RUN grep -v '^openai-whisper' requirements.txt > /tmp/requirements.base.txt \
+    && pip3 install --no-cache-dir -r /tmp/requirements.base.txt \
+    && pip3 install --no-cache-dir openai-whisper \
+    && pip3 install --no-cache-dir --force-reinstall torch torchaudio --index-url "${TORCH_CUDA_INDEX}" \
+    && rm -rf /tmp/requirements.base.txt \
+    && SITE=$(python3 -c "import site; print(site.getsitepackages()[0])") \
+    && mkdir -p /export \
+    && cp -a "$SITE" /export/site-packages \
+    && cp -a /usr/local/bin /export/bin \
+    && python3 -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)"
+
+# ---------------------------------------------------------------------------
+# 运行镜像：仅 celery-worker（Whisper）需要 GPU；API 仍可用 CPU 镜像
+# ---------------------------------------------------------------------------
+FROM ${CUDA_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONPATH=/app
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    ffmpeg \
+    curl \
+    ca-certificates \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+RUN node -v
+
+WORKDIR /app
+
+COPY --from=backend-builder /export/site-packages /usr/local/lib/python3.10/dist-packages
+COPY --from=backend-builder /export/bin /usr/local/bin
+ENV PYTHONPATH=/usr/local/lib/python3.10/dist-packages:/app
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
+
+COPY backend/ ./backend/
+COPY scripts/ ./scripts/
+COPY *.sh ./
+COPY env.example .env
+
+RUN mkdir -p data/projects data/uploads data/temp data/output logs uploads \
+    && chmod +x *.sh docker-entrypoint.sh \
+    && python3 -c "import torch; print('runtime torch', torch.__version__, 'cuda_built', bool(torch.version.cuda))"
+
+EXPOSE 8000
+
+ENTRYPOINT ["./docker-entrypoint.sh"]
+CMD ["python3", "-m", "celery", "-A", "backend.core.celery_app", "worker", "--loglevel=info", "--concurrency=1"]

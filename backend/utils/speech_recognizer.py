@@ -359,6 +359,29 @@ class SpeechRecognizer:
             return [whisper_bin]
         return [sys.executable, "-m", "whisper"]
 
+    def _resolve_whisper_device(self) -> str:
+        """
+        解析 Whisper 推理设备。
+        - WHISPER_DEVICE=cpu|cuda|cuda:N → 强制
+        - WHISPER_DEVICE=auto 或缺省 → cuda 可用则 cuda，否则 cpu
+        """
+        import os
+
+        override = (os.getenv("WHISPER_DEVICE") or "auto").strip().lower()
+        if override and override != "auto":
+            return override
+
+        try:
+            import torch
+            if torch.cuda.is_available():
+                name = torch.cuda.get_device_name(0) if torch.cuda.device_count() else "cuda"
+                logger.info(f"检测到 CUDA 可用: {name}")
+                return "cuda"
+            logger.info("未检测到 CUDA，Whisper 使用 CPU")
+        except Exception as e:
+            logger.info(f"CUDA 检测跳过（{e}），Whisper 使用 CPU")
+        return "cpu"
+
     def _generate_subtitle_whisper_local(self, video_path: Path, output_path: Path, 
                                        config: SpeechRecognitionConfig) -> Path:
         """使用本地Whisper生成字幕"""
@@ -393,6 +416,11 @@ class SpeechRecognizer:
                 '--output_format', config.output_format,
                 '--model', config.model
             ]
+
+            # 设备：WHISPER_DEVICE=cpu|cuda|cuda:0|auto（默认 auto）
+            device = self._resolve_whisper_device()
+            cmd.extend(['--device', device])
+            logger.info(f"Whisper 使用设备: {device}")
             
             # 添加语言参数
             if config.language != LanguageCode.AUTO:

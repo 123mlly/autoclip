@@ -1,0 +1,32 @@
+# NVIDIA GPU 叠加配置（可选）
+#
+# 默认 docker-compose.yml 仍是 CPU，无显卡机器不受影响。
+# 有 NVIDIA GPU 时再叠加本文件：
+#
+#   ./docker-start.sh gpu
+#   # 或
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# 前置条件：
+#   1. 宿主机已安装 NVIDIA 驱动（nvidia-smi 可用）
+#   2. 已安装 NVIDIA Container Toolkit
+#   3. 仅 celery-worker 使用 GPU 镜像（Whisper 跑在 worker 上）
+
+services:
+  celery-worker:
+    image: autoclip:gpu
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-auto}
+    # Compose V2：把一块 GPU 挂进 worker；无 Toolkit 时此文件不要启用
+    gpus: all
+    # GPU 上 Whisper 占显存，worker 并发建议为 1
+    command: >
+      celery -A backend.core.celery_app worker
+      --loglevel=info
+      --concurrency=1
+      -Q processing,upload,notification,maintenance,video,celery

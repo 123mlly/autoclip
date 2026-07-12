@@ -30,12 +30,31 @@ cd autoclip
 # 配置环境变量（必填 API_DASHSCOPE_API_KEY）
 cp env.example .env
 
-# 推荐：使用启动脚本
+# 推荐：CPU 生产环境（无显卡用这个）
 ./docker-start.sh
+
+# 可选：NVIDIA GPU 加速 Whisper（需驱动 + NVIDIA Container Toolkit）
+./docker-start.sh gpu
 
 # 或直接使用 compose
 docker compose up -d --build
+# GPU：
+# docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 ```
+
+### NVIDIA GPU（可选）
+
+默认 **不会** 启用 GPU，避免没显卡的机器启动失败。
+
+| 项目 | 说明 |
+|------|------|
+| 叠加文件 | `docker-compose.gpu.yml` + `Dockerfile.gpu` |
+| 作用范围 | 仅 `celery-worker`（Whisper 跑在 worker） |
+| 启动 | `./docker-start.sh gpu` |
+| 自检 | `docker compose -f docker-compose.yml -f docker-compose.gpu.yml exec celery-worker python3 -c "import torch; print(torch.cuda.is_available())"` |
+| 强制设备 | 环境变量 `WHISPER_DEVICE=auto\|cpu\|cuda` |
+
+无 NVIDIA 时请始终使用 `./docker-start.sh`（不要加 `gpu`）。
 
 ### 访问服务
 

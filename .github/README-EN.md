@@ -5,10 +5,10 @@ AI-powered long-form video clipping: import from **Bilibili / YouTube links** or
 [![Python](https://img.shields.io/badge/Python-3.10+-green?style=flat&logo=python)](https://python.org)
 [![React](https://img.shields.io/badge/React-18-blue?style=flat&logo=react)](https://reactjs.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Latest-red?style=flat&logo=fastapi)](https://fastapi.tiangolo.com)
-[![License](https://img.shields.io/badge/License-MIT-yellow?style=flat)](../LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-yellow?style=flat)](LICENSE)
 
 **Repo**: [https://github.com/123mlly/autoclip](https://github.com/123mlly/autoclip)  
-**Language**: [English](../README-EN.md) | [中文](../README.md)
+**Language**: [English](README-EN.md) | [中文](README.md)
 
 ---
 
@@ -64,6 +64,8 @@ Notes:
 
 - **Disk**: Docker image includes PyTorch; also reserve space for Whisper model cache and videos under `data/`  
 - **GPU (optional)**: Not required; CPU works, but long videos are slower  
+  - **Default Docker is CPU** — use `./docker-start.sh` without a GPU  
+  - With NVIDIA: `./docker-start.sh gpu` (overlay `docker-compose.gpu.yml`; needs driver + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html))  
 - **SRT provided (no speech recognition)**: 8 GB RAM is often enough for import + AI pipeline  
 
 ---
@@ -116,6 +118,9 @@ The first run builds images (including the frontend bundle) and may take a while
 ./docker-status.sh          # status
 ./docker-stop.sh            # stop everything
 docker compose logs -f      # logs
+
+# Optional: NVIDIA GPU for Whisper (do not use without a GPU)
+./docker-start.sh gpu
 ```
 
 **Dev mode (hot reload)**
@@ -198,7 +203,10 @@ autoclip/
 ├── frontend/                # React SPA
 ├── data/                    # DB and project data (runtime)
 ├── docker-compose.yml
+├── docker-compose.gpu.yml   # optional NVIDIA overlay
 ├── docker-compose.dev.yml
+├── Dockerfile
+├── Dockerfile.gpu           # CUDA worker image
 ├── docker-start.sh
 ├── start_autoclip.sh
 └── env.example
@@ -228,7 +236,7 @@ Base path: `/api/v1` (interactive docs at `/docs`)
 Check the API key in `.env` or Settings. Docker loads `.env` via `env_file`.
 
 **No subtitles / speech recognition?**  
-Without an SRT, local **Whisper** (`openai-whisper`) generates subtitles. The Docker image includes it. On CPU, the first run downloads a model (`base` / `small`, etc.) and can take a while.
+Without an SRT, local **Whisper** (`openai-whisper`) generates subtitles. The default Docker image is CPU-oriented. On CPU, the first run downloads a model (`base` / `small`, etc.). With NVIDIA, use `./docker-start.sh gpu`; Whisper picks `cuda` when available (`WHISPER_DEVICE` can force `cpu`/`cuda`).
 
 **Docker build is slow or apt fails?**  
 First builds pull PyTorch and other large deps. If apt returns `502` or cannot reach the mirror, retry later or change `DEBIAN_MIRROR` in the Dockerfile (e.g. `mirrors.tuna.tsinghua.edu.cn`).
@@ -253,10 +261,10 @@ Prod Docker uses `8000` and `6379`; dev also needs `3000`. Stop local uvicorn/vi
 
 - [Issues](https://github.com/123mlly/autoclip/issues)
 - [Discussions](https://github.com/123mlly/autoclip/discussions)
-- Docs: [docs/](../docs/)
+- Docs: [docs/](docs/)
 
 ---
 
 ## License
 
-[MIT](../LICENSE)
+[MIT](LICENSE)

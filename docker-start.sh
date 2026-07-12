@@ -132,15 +132,29 @@ check_ports() {
 start_services() {
     log_header "启动AutoClip服务"
     
-    # 选择启动模式
-    if [[ "${1:-}" == "dev" ]]; then
+    local mode="${1:-production}"
+
+    if [[ "$mode" == "dev" ]]; then
         log_info "启动开发环境（构建并启动）..."
         docker compose -f docker-compose.dev.yml up -d --build
         COMPOSE_FILE="docker-compose.dev.yml"
+        COMPOSE_ARGS=(-f docker-compose.dev.yml)
+    elif [[ "$mode" == "gpu" ]]; then
+        log_info "启动生产环境 + NVIDIA GPU（Whisper 走 celery-worker）..."
+        if ! command -v nvidia-smi >/dev/null 2>&1; then
+            log_warning "未检测到 nvidia-smi。若无 NVIDIA 驱动/显卡，GPU 叠加可能启动失败；请改用 ./docker-start.sh"
+        else
+            log_success "检测到 nvidia-smi"
+            nvidia-smi -L 2>/dev/null || true
+        fi
+        docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+        COMPOSE_FILE="docker-compose.yml + docker-compose.gpu.yml"
+        COMPOSE_ARGS=(-f docker-compose.yml -f docker-compose.gpu.yml)
     else
-        log_info "启动生产环境（重新构建前端静态资源并启动）..."
+        log_info "启动生产环境（CPU，重新构建前端静态资源并启动）..."
         docker compose up -d --build
         COMPOSE_FILE="docker-compose.yml"
+        COMPOSE_ARGS=(-f docker-compose.yml)
     fi
     
     # 等待服务启动
@@ -149,12 +163,12 @@ start_services() {
     
     # 检查服务状态（兼容 Docker Compose 新版状态文案）
     local ps_out
-    ps_out="$(docker compose -f "$COMPOSE_FILE" ps 2>/dev/null || true)"
+    ps_out="$(docker compose "${COMPOSE_ARGS[@]}" ps 2>/dev/null || true)"
     if echo "$ps_out" | grep -qiE 'up|running|healthy'; then
         log_success "服务启动成功"
     else
         log_error "服务启动失败"
-        log_info "查看日志: docker compose -f $COMPOSE_FILE logs"
+        log_info "查看日志: docker compose ${COMPOSE_ARGS[*]} logs"
         exit 1
     fi
 }
@@ -163,13 +177,15 @@ show_status() {
     log_header "服务状态"
     
     local mode="${1:-production}"
-    local compose_file="docker-compose.yml"
+    local compose_args=(-f docker-compose.yml)
     if [[ "$mode" == "dev" ]]; then
-        compose_file="docker-compose.dev.yml"
+        compose_args=(-f docker-compose.dev.yml)
+    elif [[ "$mode" == "gpu" ]]; then
+        compose_args=(-f docker-compose.yml -f docker-compose.gpu.yml)
     fi
 
     echo -e "${CYAN}📊 容器状态:${NC}"
-    docker compose -f "$compose_file" ps
+    docker compose "${compose_args[@]}" ps
 
     echo -e "\n${CYAN}🌐 访问地址:${NC}"
     if [[ "$mode" == "dev" ]]; then
@@ -181,16 +197,25 @@ show_status() {
     fi
     echo -e "  API文档:  http://localhost:8000/docs"
     echo -e "  Flower监控: docker compose --profile monitoring up -d 后访问 http://localhost:5555"
+    if [[ "$mode" == "gpu" ]]; then
+        echo -e "\n${CYAN}🎮 GPU:${NC}"
+        echo -e "  自检: docker compose ${compose_args[*]} exec celery-worker python3 -c \"import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')\""
+    fi
     
     echo -e "\n${CYAN}📝 常用命令:${NC}"
     if [[ "$mode" == "dev" ]]; then
         echo -e "  查看日志: docker compose -f docker-compose.dev.yml logs -f"
         echo -e "  停止服务: docker compose -f docker-compose.dev.yml down"
+    elif [[ "$mode" == "gpu" ]]; then
+        echo -e "  查看日志: docker compose -f docker-compose.yml -f docker-compose.gpu.yml logs -f"
+        echo -e "  停止服务: docker compose -f docker-compose.yml -f docker-compose.gpu.yml down"
+        echo -e "  进入 worker: docker compose -f docker-compose.yml -f docker-compose.gpu.yml exec celery-worker bash"
     else
         echo -e "  查看日志: docker compose logs -f"
         echo -e "  停止服务: docker compose down"
         echo -e "  重启服务: docker compose restart"
         echo -e "  进入容器: docker compose exec autoclip bash"
+        echo -e "  GPU 启动: ./docker-start.sh gpu"
     fi
 }
 
@@ -205,6 +230,8 @@ main() {
     local mode="production"
     if [[ "${1:-}" == "dev" ]]; then
         mode="dev"
+    elif [[ "${1:-}" == "gpu" ]]; then
+        mode="gpu"
     fi
     
     log_info "启动模式: $mode"
@@ -222,6 +249,9 @@ main() {
     
     echo -e "\n${WHITE}🎉 AutoClip Docker 部署完成！${NC}"
     echo -e "${YELLOW}💡 提示: 首次启动可能需要几分钟来下载和构建镜像${NC}"
+    if [[ "$mode" == "gpu" ]]; then
+        echo -e "${YELLOW}💡 GPU 镜像含 CUDA PyTorch，首次构建更大更慢；无显卡请用 ./docker-start.sh${NC}"
+    fi
     echo -e "${YELLOW}💡 请确认 .env 中已配置 API_DASHSCOPE_API_KEY，否则 AI 功能不可用${NC}"
 }
 
@@ -233,12 +263,15 @@ show_help() {
     echo "  $0 [选项]"
     echo ""
     echo "选项:"
+    echo "  (无)    启动生产环境（CPU，默认）"
+    echo "  gpu     启动生产环境 + NVIDIA GPU（仅 celery-worker / Whisper）"
     echo "  dev     启动开发环境"
     echo "  help    显示帮助信息"
     echo ""
     echo "示例:"
-    echo "  $0          # 启动生产环境"
-    echo "  $0 dev      # 启动开发环境"
+    echo "  $0          # CPU 生产环境（无显卡请用这个）"
+    echo "  $0 gpu      # 有 NVIDIA 时加速 Whisper"
+    echo "  $0 dev      # 开发环境"
     echo "  $0 help     # 显示帮助"
 }
 

@@ -58,20 +58,25 @@ stop_services() {
     log_header "停止AutoClip服务"
     
     local mode="${1:-production}"
-    local compose_file="docker-compose.yml"
-    
-    if [[ "$mode" == "dev" ]]; then
-        compose_file="docker-compose.dev.yml"
-    fi
     
     log_info "停止服务 (模式: $mode)..."
     
-    # 停止服务
-    if docker compose -f "$compose_file" down; then
-        log_success "服务已停止"
+    if [[ "$mode" == "dev" ]]; then
+        if docker compose -f docker-compose.dev.yml down; then
+            log_success "服务已停止"
+        else
+            log_error "停止服务失败"
+            exit 1
+        fi
     else
-        log_error "停止服务失败"
-        exit 1
+        # 生产：同时带上 gpu 叠加文件，确保 gpu 启动的 worker 一并拆除
+        if docker compose -f docker-compose.yml -f docker-compose.gpu.yml down 2>/dev/null \
+            || docker compose -f docker-compose.yml down; then
+            log_success "服务已停止"
+        else
+            log_error "停止服务失败"
+            exit 1
+        fi
     fi
 }
 
