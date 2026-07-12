@@ -24,7 +24,7 @@ interface SimpleProgressState {
   // 操作方法
   upsert: (progress: SimpleProgress) => void
   startPolling: (projectIds: string[], intervalMs?: number) => void
-  stopPolling: () => void
+  stopPolling: (projectIds?: string[]) => void
   clearProgress: (projectId: string) => void
   clearAllProgress: () => void
   
@@ -35,6 +35,7 @@ interface SimpleProgressState {
 
 export const useSimpleProgressStore = create<SimpleProgressState>((set, get) => {
   let timer: NodeJS.Timeout | null = null
+  let activeProjectIds: string[] = []
 
   return {
     // 初始状态
@@ -44,6 +45,15 @@ export const useSimpleProgressStore = create<SimpleProgressState>((set, get) => 
 
     // 更新或插入进度数据
     upsert: (progress: SimpleProgress) => {
+      const prev = get().byId[progress.project_id]
+      if (
+        prev &&
+        prev.stage === progress.stage &&
+        prev.percent === progress.percent &&
+        prev.message === progress.message
+      ) {
+        return
+      }
       set((state) => ({
         byId: {
           ...state.byId,
@@ -52,26 +62,36 @@ export const useSimpleProgressStore = create<SimpleProgressState>((set, get) => 
       }))
     },
 
-    // 开始轮询
+    // 开始轮询（合并项目 ID，避免多卡片互相 stop）
     startPolling: (projectIds: string[], intervalMs: number = 2000) => {
-      const { stopPolling, isPolling } = get()
-      
-      // 如果已经在轮询，先停止
-      if (isPolling) {
-        stopPolling()
-      }
-
       if (projectIds.length === 0) {
         console.warn('没有项目ID，跳过轮询')
         return
       }
 
-      console.log(`开始轮询进度: ${projectIds.join(', ')}`)
+      const merged = Array.from(new Set([...activeProjectIds, ...projectIds]))
+      const sameIds =
+        merged.length === activeProjectIds.length &&
+        merged.every((id) => activeProjectIds.includes(id))
+      const { isPolling, pollingInterval } = get()
 
-      // 立即获取一次
+      if (isPolling && sameIds && pollingInterval === intervalMs) {
+        return
+      }
+
+      if (timer) {
+        clearInterval(timer)
+        timer = null
+      }
+
+      activeProjectIds = merged
+      console.log(`开始轮询进度: ${activeProjectIds.join(', ')}`)
+
       const fetchSnapshots = async () => {
         try {
-          const queryString = projectIds.map(id => `project_ids=${id}`).join('&')
+          const ids = activeProjectIds
+          if (ids.length === 0) return
+          const queryString = ids.map(id => `project_ids=${id}`).join('&')
           const response = await fetch(apiUrl(`/simple-progress/snapshot?${queryString}`))
           
           if (!response.ok) {
@@ -80,23 +100,16 @@ export const useSimpleProgressStore = create<SimpleProgressState>((set, get) => 
           
           const snapshots: SimpleProgress[] = await response.json()
           
-          // 更新状态
           snapshots.forEach(snapshot => {
-            console.log(`更新进度: ${snapshot.project_id} - ${snapshot.stage} (${snapshot.percent}%)`)
             get().upsert(snapshot)
           })
-          
-          console.log(`轮询更新: ${snapshots.length} 个项目`)
           
         } catch (error) {
           console.error('轮询进度失败:', error)
         }
       }
 
-      // 立即执行一次
       fetchSnapshots()
-
-      // 设置定时器
       timer = setInterval(fetchSnapshots, intervalMs)
 
       set({
@@ -105,8 +118,20 @@ export const useSimpleProgressStore = create<SimpleProgressState>((set, get) => 
       })
     },
 
-    // 停止轮询
-    stopPolling: () => {
+    // 停止轮询：支持移除部分项目；全部移除后才清 timer
+    stopPolling: (projectIds?: string[]) => {
+      if (projectIds && projectIds.length > 0) {
+        activeProjectIds = activeProjectIds.filter((id) => !projectIds.includes(id))
+        if (activeProjectIds.length > 0) {
+          // 仍有项目需要轮询，用剩余 ID 重启
+          const interval = get().pollingInterval || 2000
+          get().startPolling(activeProjectIds, interval)
+          return
+        }
+      } else {
+        activeProjectIds = []
+      }
+
       if (timer) {
         clearInterval(timer)
         timer = null

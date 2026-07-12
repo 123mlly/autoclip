@@ -1,106 +1,85 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { projectApi } from '../services/api'
 import { Project, useProjectStore } from '../store/useProjectStore'
 
 interface UseProjectPollingOptions {
-  interval?: number // 轮询间隔，默认10秒
+  interval?: number
   onProjectsUpdate?: (projects: Project[]) => void
-  enabled?: boolean // 是否启用轮询
+  /** 仅在有活跃项目时开启；全部完成后应传 false */
+  enabled?: boolean
 }
 
+/**
+ * 按需轮询项目列表：enabled=false 时不请求。
+ * 回调用 ref 持有，避免父组件重渲染导致定时器反复重启。
+ */
 export const useProjectPolling = ({
-  interval = 10000,
+  interval = 2500,
   onProjectsUpdate,
-  enabled = true
+  enabled = false
 }: UseProjectPollingOptions = {}) => {
   const [isPolling, setIsPolling] = useState(false)
   const intervalRef = useRef<number | null>(null)
+  const onUpdateRef = useRef(onProjectsUpdate)
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now())
-  const isDragging = useProjectStore(state => state.isDragging)
 
-    const startPolling = () => {
-    if (!enabled || intervalRef.current) return
+  useEffect(() => {
+    onUpdateRef.current = onProjectsUpdate
+  }, [onProjectsUpdate])
 
-    setIsPolling(true)
-    
-    const poll = async () => {
-      try {
-        // 实时获取isDragging状态
-        const currentIsDragging = useProjectStore.getState().isDragging
-        
-        // 如果正在拖拽，跳过这次轮询
-        if (currentIsDragging) {
-          console.log('Skipping poll: dragging in progress')
-          return
-        }
-        
-        console.log('Polling projects...')
-        const projects = await projectApi.getProjects()
-        console.log('Polled projects:', projects)
-        
-        const hasProcessingProjects = projects.some(p => p.status === 'processing')
-        
-        if (onProjectsUpdate) {
-          console.log('Calling onProjectsUpdate with:', projects)
-          onProjectsUpdate(projects)
-        }
-        
-        setLastUpdateTime(Date.now())
-        
-        // 如果没有正在处理的项目，可以适当减少轮询频率
-        if (!hasProcessingProjects) {
-          // 可以在这里实现动态调整轮询频率的逻辑
-        }
-      } catch (error) {
-        console.error('Polling error:', error)
-      }
-    }
-
-    // 立即执行一次
-    poll()
-    
-    // 设置定时器
-    intervalRef.current = setInterval(poll, interval)
-  }
-
-  const stopPolling = () => {
+  const stopPolling = useCallback(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current)
       intervalRef.current = null
     }
     setIsPolling(false)
-  }
+  }, [])
 
-  const refreshNow = async () => {
-    try {
-      const projects = await projectApi.getProjects()
-      if (onProjectsUpdate) {
-        onProjectsUpdate(projects)
-      }
-      setLastUpdateTime(Date.now())
-      return projects
-    } catch (error) {
-      console.error('Manual refresh error:', error)
-      throw error
-    }
-  }
+  const applyProjects = useCallback((projects: Project[]) => {
+    onUpdateRef.current?.(projects)
+    setLastUpdateTime(Date.now())
+  }, [])
+
+  const refreshNow = useCallback(async () => {
+    const projects = await projectApi.getProjects()
+    applyProjects(projects || [])
+    return projects
+  }, [applyProjects])
 
   useEffect(() => {
-    if (enabled) {
-      startPolling()
-    } else {
+    if (!enabled) {
       stopPolling()
+      return
     }
 
+    let cancelled = false
+
+    const poll = async () => {
+      try {
+        if (useProjectStore.getState().isDragging) return
+        const projects = await projectApi.getProjects()
+        if (cancelled) return
+        applyProjects(projects || [])
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Polling error:', error)
+        }
+      }
+    }
+
+    setIsPolling(true)
+    poll()
+    intervalRef.current = window.setInterval(poll, interval)
+
     return () => {
+      cancelled = true
       stopPolling()
     }
-  }, [enabled, interval])
+  }, [enabled, interval, applyProjects, stopPolling])
 
   return {
     isPolling,
     lastUpdateTime,
-    startPolling,
     stopPolling,
     refreshNow
   }

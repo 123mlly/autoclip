@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { 
   Layout, 
   Typography, 
@@ -15,11 +15,15 @@ import BilibiliDownload from '../components/BilibiliDownload'
 import { projectApi } from '../services/api'
 import { Project, useProjectStore } from '../store/useProjectStore'
 import { useProjectPolling } from '../hooks/useProjectPolling'
-// import { useWebSocket, WebSocketEventMessage } from '../hooks/useWebSocket'  // 已禁用WebSocket系统
 
 const { Content } = Layout
 const { Title, Text } = Typography
 const { Option } = Select
+
+function isActiveProjectStatus(status: string | undefined): boolean {
+  const s = String(status || '').toLowerCase()
+  return s === 'pending' || s === 'processing'
+}
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate()
@@ -27,52 +31,52 @@ const HomePage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [activeTab, setActiveTab] = useState<'upload' | 'bilibili'>('upload')
 
-  const hasActiveProjects = projects.some(
-    (p) => p.status === 'pending' || p.status === 'processing'
-  )
+  const hasActiveProjects = projects.some((p) => isActiveProjectStatus(p.status))
 
-  // 使用项目轮询Hook（下载/字幕阶段加快刷新）
+  const handleProjectsUpdate = useCallback((updatedProjects: Project[]) => {
+    setProjects(updatedProjects || [])
+  }, [setProjects])
+
+  // 仅有下载/处理中的项目时轮询；全部完成后停止
   const { refreshNow } = useProjectPolling({
-    onProjectsUpdate: (updatedProjects) => {
-      setProjects(updatedProjects || [])
-    },
-    enabled: true,
-    interval: hasActiveProjects ? 2500 : 15000
+    onProjectsUpdate: handleProjectsUpdate,
+    enabled: hasActiveProjects,
+    interval: 2500
   })
 
-  useEffect(() => {
-    loadProjects()
-  }, [])
-
-  const loadProjects = async () => {
-    setLoading(true)
+  const loadProjects = useCallback(async (withSpinner = true) => {
+    if (withSpinner) setLoading(true)
     try {
-      // 从后端API获取真实项目数据
-      const projects = await projectApi.getProjects()
-      setProjects(projects || [])
+      const list = await projectApi.getProjects()
+      setProjects(list || [])
     } catch (error) {
-      message.error('加载项目失败')
+      if (withSpinner) message.error('加载项目失败')
       console.error('Load projects error:', error)
-      // 如果API调用失败，设置空数组
-      setProjects([])
+      if (withSpinner) setProjects([])
     } finally {
-      setLoading(false)
+      if (withSpinner) setLoading(false)
     }
-  }
+  }, [setProjects, setLoading])
 
-  // 使用集合差异对齐订阅项目WebSocket主题
-  // WebSocket订阅已禁用，使用新的简化进度系统
-  // useEffect(() => {
-  //   if (isConnected && projects.length > 0) {
-  //     const desiredChannels = projects.map(project => `project_${project.id}`)
-  //     console.log('同步订阅项目频道:', desiredChannels)
-  //     syncSubscriptions(desiredChannels)
-  //   } else if (isConnected && projects.length === 0) {
-  //     // 如果没有项目，清空所有订阅
-  //     console.log('清空所有项目订阅')
-  //     syncSubscriptions([])
-  //   }
-  // }, [isConnected, projects, syncSubscriptions])
+  useEffect(() => {
+    void loadProjects()
+  }, [loadProjects])
+
+  // 回到页面时补一次，避免闲时停轮询后状态过旧
+  useEffect(() => {
+    const onFocus = () => {
+      void loadProjects(false)
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') onFocus()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [loadProjects])
 
   const handleDeleteProject = async (id: string) => {
     try {
@@ -87,18 +91,16 @@ const HomePage: React.FC = () => {
 
   const handleRetryProject = async (projectId: string) => {
     try {
-      // 查找项目状态
       const project = projects.find(p => p.id === projectId)
       if (!project) {
         message.error('项目不存在')
         return
       }
       
-      // 统一使用retryProcessing API，它会自动处理视频文件不存在的情况
       await projectApi.retryProcessing(projectId)
       message.success('已开始重试处理项目')
       
-      await loadProjects()
+      await loadProjects(false)
     } catch (error) {
       message.error('重试失败，请稍后再试')
       console.error('Retry project error:', error)
@@ -109,7 +111,6 @@ const HomePage: React.FC = () => {
     try {
       await projectApi.startProcessing(projectId)
       message.success('项目已开始处理，请稍等片刻查看进度')
-      // 立即刷新项目列表以显示最新状态
       setTimeout(async () => {
         try {
           await refreshNow()
@@ -122,10 +123,8 @@ const HomePage: React.FC = () => {
       message.error(errorMessage)
       console.error('Start processing error:', error)
       
-      // 如果是超时错误，提示用户项目可能仍在处理
       if ((error as { code?: string; message?: string })?.code === 'ECONNABORTED' || (error as { code?: string; message?: string })?.message?.includes('timeout')) {
         message.info('请求超时，但项目可能已开始处理，请查看项目状态', 5)
-        // 延迟刷新项目列表
         setTimeout(async () => {
           try {
             await refreshNow()
@@ -138,13 +137,11 @@ const HomePage: React.FC = () => {
   }
 
   const handleProjectCardClick = (project: Project) => {
-    // 导入中状态的项目不能点击进入详情页
-    if (project.status === 'pending') {
+    if (String(project.status || '').toLowerCase() === 'pending') {
       message.warning('项目正在导入中，请稍后再查看详情')
       return
     }
     
-    // 其他状态可以正常进入详情页
     navigate(`/project/${project.id}`)
   }
 
@@ -154,7 +151,6 @@ const HomePage: React.FC = () => {
       return matchesStatus
     })
     .sort((a, b) => {
-      // 按创建时间倒序排列，最新的在前面
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     })
 
@@ -191,12 +187,12 @@ const HomePage: React.FC = () => {
               <div>
                 {activeTab === 'bilibili' && (
                   <BilibiliDownload onDownloadSuccess={async () => {
-                    await loadProjects()
+                    await loadProjects(false)
                   }} />
                 )}
                 {activeTab === 'upload' && (
                   <FileUpload onUploadSuccess={async () => {
-                    await loadProjects()
+                    await loadProjects(false)
                     message.success('项目创建成功，正在处理中...')
                   }} />
                 )}
@@ -228,6 +224,11 @@ const HomePage: React.FC = () => {
                 <span className="count-chip">
                   共 {filteredProjects.length} 个项目
                 </span>
+                {hasActiveProjects && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    处理中，自动刷新中…
+                  </Text>
+                )}
               </div>
 
               <Select

@@ -1,6 +1,12 @@
-import React, { useState, useEffect } from 'react'
-import { Card, Tag, Button, Typography, Progress, Popconfirm, message, Tooltip } from 'antd'
-import { PlayCircleOutlined, DeleteOutlined, EyeOutlined, DownloadOutlined, ReloadOutlined, LoadingOutlined } from '@ant-design/icons'
+import React, { useState, useEffect, useCallback } from 'react'
+import { Card, Button, Typography, Popconfirm, message, Tooltip } from 'antd'
+import {
+  PlayCircleOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  ReloadOutlined,
+  LoadingOutlined,
+} from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { Project, useProjectStore } from '../store/useProjectStore'
 import { projectApi } from '../services/api'
@@ -308,6 +314,70 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
   const normalizedStatus = display.status
   const progressPercent = display.percent
   const isBusy = isBusyCardStatus(display.status)
+
+  const handleStatusChange = useCallback((newStatus: string) => {
+    const current = useProjectStore.getState().projects.find((p) => p.id === project.id)
+    if (!current) return
+
+    if (
+      newStatus === 'processing' ||
+      newStatus === 'completed' ||
+      newStatus === 'failed'
+    ) {
+      if (current.status === newStatus) return
+      updateProject(project.id, { status: newStatus as Project['status'] })
+      return
+    }
+
+    if (newStatus === 'preparing' || newStatus === 'queued') {
+      const nextDownloadStatus = newStatus === 'preparing' ? 'preparing' : 'completed'
+      const nextMessage =
+        newStatus === 'preparing'
+          ? current.processing_config?.download_message || '正在生成字幕...'
+          : current.processing_config?.download_message || '排队处理中'
+      if (
+        current.processing_config?.download_status === nextDownloadStatus &&
+        Number(current.processing_config?.download_progress ?? 0) >= 100
+      ) {
+        return
+      }
+      updateProject(project.id, {
+        processing_config: {
+          ...current.processing_config,
+          download_status: nextDownloadStatus,
+          download_progress: 100,
+          download_message: nextMessage,
+        },
+      })
+    }
+  }, [project.id, updateProject])
+
+  const handleDownloadProgressUpdate = useCallback((progress: number) => {
+    const current = useProjectStore.getState().projects.find((p) => p.id === project.id)
+    if (!current) return
+
+    const rounded = Math.round(progress)
+    const prev = Math.round(Number(current.processing_config?.download_progress ?? 0))
+    const nextStatus =
+      rounded >= 100
+        ? 'completed'
+        : current.processing_config?.download_status || 'downloading'
+
+    if (
+      prev === rounded &&
+      current.processing_config?.download_status === nextStatus
+    ) {
+      return
+    }
+
+    updateProject(project.id, {
+      processing_config: {
+        ...current.processing_config,
+        download_progress: rounded,
+        download_status: nextStatus,
+      },
+    })
+  }, [project.id, updateProject])
 
   const handleRetry = async () => {
     if (isRetrying) return
@@ -657,46 +727,8 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
                   status={normalizedStatus}
                   statusLabel={display.label}
                   downloadProgress={progressPercent ?? undefined}
-                  onStatusChange={(newStatus) => {
-                    if (
-                      newStatus === 'processing' ||
-                      newStatus === 'completed' ||
-                      newStatus === 'failed'
-                    ) {
-                      updateProject(project.id, {
-                        status: newStatus as Project['status'],
-                      })
-                      return
-                    }
-                    if (newStatus === 'preparing' || newStatus === 'queued') {
-                      updateProject(project.id, {
-                        processing_config: {
-                          ...project.processing_config,
-                          download_status:
-                            newStatus === 'preparing' ? 'preparing' : 'completed',
-                          download_progress: 100,
-                          download_message:
-                            newStatus === 'preparing'
-                              ? project.processing_config?.download_message ||
-                                '正在生成字幕...'
-                              : project.processing_config?.download_message ||
-                                '排队处理中',
-                        },
-                      })
-                    }
-                  }}
-                  onDownloadProgressUpdate={(progress) => {
-                    updateProject(project.id, {
-                      processing_config: {
-                        ...project.processing_config,
-                        download_progress: progress,
-                        download_status:
-                          progress >= 100
-                            ? 'completed'
-                            : project.processing_config?.download_status || 'downloading',
-                      },
-                    })
-                  }}
+                  onStatusChange={handleStatusChange}
+                  onDownloadProgressUpdate={handleDownloadProgressUpdate}
                 />
               </div>
             </div>
@@ -714,46 +746,8 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
                   status={normalizedStatus}
                   statusLabel={display.label}
                   downloadProgress={progressPercent ?? undefined}
-                  onStatusChange={(newStatus) => {
-                    if (
-                      newStatus === 'processing' ||
-                      newStatus === 'completed' ||
-                      newStatus === 'failed'
-                    ) {
-                      updateProject(project.id, {
-                        status: newStatus as Project['status'],
-                      })
-                      return
-                    }
-                    if (newStatus === 'preparing' || newStatus === 'queued') {
-                      updateProject(project.id, {
-                        processing_config: {
-                          ...project.processing_config,
-                          download_status:
-                            newStatus === 'preparing' ? 'preparing' : 'completed',
-                          download_progress: 100,
-                          download_message:
-                            newStatus === 'preparing'
-                              ? project.processing_config?.download_message ||
-                                '正在生成字幕...'
-                              : project.processing_config?.download_message ||
-                                '排队处理中',
-                        },
-                      })
-                    }
-                  }}
-                  onDownloadProgressUpdate={(progress) => {
-                    updateProject(project.id, {
-                      processing_config: {
-                        ...project.processing_config,
-                        download_progress: progress,
-                        download_status:
-                          progress >= 100
-                            ? 'completed'
-                            : project.processing_config?.download_status || 'downloading',
-                      },
-                    })
-                  }}
+                  onStatusChange={handleStatusChange}
+                  onDownloadProgressUpdate={handleDownloadProgressUpdate}
                 />
               </div>
               

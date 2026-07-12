@@ -3,7 +3,7 @@
  * 支持下载中、生成字幕中、排队、处理中、完成等状态的统一显示
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Progress, Typography } from 'antd'
 import { useSimpleProgressStore, getStageDisplayName, getStageColor, isCompleted, isFailed } from '../stores/useSimpleProgressStore'
 import { apiUrl } from '../apiConfig'
@@ -70,33 +70,70 @@ export const UnifiedStatusBar: React.FC<UnifiedStatusBarProps> = ({
   onStatusChange,
   onDownloadProgressUpdate
 }) => {
-  const { getProgress, startPolling, stopPolling } = useSimpleProgressStore()
-  const [isPolling, setIsPolling] = useState(false)
+  const progress = useSimpleProgressStore((s) => s.byId[projectId] ?? null)
+  const startPolling = useSimpleProgressStore((s) => s.startPolling)
+  const stopPolling = useSimpleProgressStore((s) => s.stopPolling)
   const [currentDownloadProgress, setCurrentDownloadProgress] = useState(downloadProgress)
-  
-  const progress = getProgress(projectId)
+
+  // 用 ref 持有最新回调，避免放入 effect 依赖导致无限重跑（React #185）
+  const onStatusChangeRef = useRef(onStatusChange)
+  const onDownloadProgressUpdateRef = useRef(onDownloadProgressUpdate)
+  const statusRef = useRef(status)
+  const lastEmittedStatusRef = useRef<string | null>(null)
+  const lastEmittedProgressRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    onStatusChangeRef.current = onStatusChange
+  }, [onStatusChange])
+
+  useEffect(() => {
+    onDownloadProgressUpdateRef.current = onDownloadProgressUpdate
+  }, [onDownloadProgressUpdate])
+
+  useEffect(() => {
+    statusRef.current = status
+    // 父级状态变化后，允许再次向父级同步同名状态（例如重新处理）
+    if (status !== lastEmittedStatusRef.current) {
+      lastEmittedStatusRef.current = status
+    }
+  }, [status])
 
   useEffect(() => {
     setCurrentDownloadProgress(downloadProgress)
+    if (typeof downloadProgress === 'number') {
+      lastEmittedProgressRef.current = downloadProgress
+    }
   }, [downloadProgress])
 
-  // 处理中：轮询简化进度
+  const emitStatus = (next: string) => {
+    if (next === lastEmittedStatusRef.current) return
+    if (next === statusRef.current) {
+      lastEmittedStatusRef.current = next
+      return
+    }
+    lastEmittedStatusRef.current = next
+    onStatusChangeRef.current?.(next)
+  }
+
+  const emitProgress = (next: number) => {
+    const rounded = Math.round(next)
+    if (lastEmittedProgressRef.current === rounded) return
+    lastEmittedProgressRef.current = rounded
+    setCurrentDownloadProgress(rounded)
+    onDownloadProgressUpdateRef.current?.(rounded)
+  }
+
+  // 处理中：轮询简化进度（不要把本地 isPolling 放进依赖，避免启停抖动）
   useEffect(() => {
-    if (status === 'processing' && !isPolling) {
-      startPolling([projectId], 2000)
-      setIsPolling(true)
-    } else if (status !== 'processing' && isPolling) {
-      stopPolling()
-      setIsPolling(false)
+    if (status !== 'processing') {
+      return
     }
 
+    startPolling([projectId], 2000)
     return () => {
-      if (isPolling) {
-        stopPolling()
-        setIsPolling(false)
-      }
+      stopPolling([projectId])
     }
-  }, [status, projectId, isPolling, startPolling, stopPolling])
+  }, [status, projectId, startPolling, stopPolling])
 
   // 下载 / 准备阶段：轮询项目 processing_config
   useEffect(() => {
@@ -104,20 +141,24 @@ export const UnifiedStatusBar: React.FC<UnifiedStatusBarProps> = ({
       return
     }
 
+    let cancelled = false
+
     const pollProject = async () => {
       try {
         const response = await fetch(apiUrl(`/projects/${projectId}`))
-        if (!response.ok) return
+        if (!response.ok || cancelled) return
         const projectData = await response.json()
+        if (cancelled) return
+
         const cfg = projectData.processing_config || {}
         const newProgress = Number(cfg.download_progress ?? 0)
         const projectStatus = projectData.status
+        const current = statusRef.current
 
-        if (status === 'downloading') {
-          setCurrentDownloadProgress(newProgress)
-          onDownloadProgressUpdate?.(newProgress)
+        if (current === 'downloading') {
+          emitProgress(newProgress)
           if (newProgress >= 100 || cfg.download_status === 'completed') {
-            onStatusChange?.(
+            emitStatus(
               /字幕|Whisper|whisper/i.test(String(cfg.download_message || ''))
                 ? 'preparing'
                 : 'queued'
@@ -126,36 +167,43 @@ export const UnifiedStatusBar: React.FC<UnifiedStatusBarProps> = ({
         }
 
         if (cfg.download_status === 'failed' || projectStatus === 'failed') {
-          onStatusChange?.('failed')
+          emitStatus('failed')
           return
         }
         if (projectStatus === 'processing') {
-          onStatusChange?.('processing')
+          emitStatus('processing')
           return
         }
         if (projectStatus === 'completed') {
-          onStatusChange?.('completed')
+          emitStatus('completed')
         }
       } catch (error) {
-        console.error('获取项目进度失败:', error)
+        if (!cancelled) {
+          console.error('获取项目进度失败:', error)
+        }
       }
     }
 
     pollProject()
     const interval = setInterval(pollProject, 2000)
-    return () => clearInterval(interval)
-  }, [status, projectId, onDownloadProgressUpdate, onStatusChange])
-
-  // 处理状态变化（简化进度 store）
-  useEffect(() => {
-    if (progress && onStatusChange) {
-      if (isCompleted(progress.stage)) {
-        onStatusChange('completed')
-      } else if (isFailed(progress.message)) {
-        onStatusChange('failed')
-      }
+    return () => {
+      cancelled = true
+      clearInterval(interval)
     }
-  }, [progress, onStatusChange])
+    // 故意不依赖回调；通过 ref 读取最新值
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, projectId])
+
+  // 进度 store 完成/失败时同步一次（用 ref + lastEmitted 防抖）
+  useEffect(() => {
+    if (!progress) return
+    if (isCompleted(progress.stage)) {
+      emitStatus('completed')
+    } else if (isFailed(progress.message)) {
+      emitStatus('failed')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress?.stage, progress?.message, progress?.percent])
 
   if (status === 'downloading') {
     const pct = Math.round(currentDownloadProgress || 0)

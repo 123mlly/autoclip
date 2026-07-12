@@ -96,20 +96,37 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   setProjects: (projects) => {
     const state = get()
-    
-    console.log('setProjects called:', {
-      isDragging: state.isDragging,
-      projectsCount: projects.length,
-      projects: projects
-    })
-    
-    // 如果正在拖拽，则跳过更新以避免冲突
+
+    // 拖拽中跳过，避免冲突
     if (state.isDragging) {
-      console.log('Skipping update: dragging in progress')
       return
     }
-    
-    console.log('Applying update with new data')
+
+    // 关键字段未变则跳过，避免闲时/轮询触发整表重渲染
+    const fingerprint = (list: Project[]) =>
+      list
+        .map((p) =>
+          [
+            p.id,
+            p.status,
+            p.updated_at,
+            p.total_clips ?? 0,
+            p.total_collections ?? 0,
+            p.processing_config?.download_status ?? '',
+            p.processing_config?.download_progress ?? '',
+            p.processing_config?.download_message ?? '',
+            p.thumbnail ?? '',
+          ].join(':')
+        )
+        .join('|')
+
+    if (
+      state.projects.length === projects.length &&
+      fingerprint(state.projects) === fingerprint(projects)
+    ) {
+      return
+    }
+
     set({ projects })
   },
   
