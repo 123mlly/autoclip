@@ -17,7 +17,7 @@ AI-powered long-form video clipping: import from **Bilibili / YouTube links** or
 | Feature | Description |
 |---------|-------------|
 | Link import | Paste a Bilibili or YouTube URL; download and create a project |
-| File import | Upload a local video (optional SRT); local **Whisper** if no subtitles |
+| File import | Upload a local video (optional SRT); local ASR (default **faster-whisper**) if no subtitles |
 | AI pipeline | Outline → timestamps → scoring → titles → clustering → FFmpeg cuts |
 | Clips & collections | Preview/download clips; AI collections; manual create & drag reorder |
 | Subtitle editing | Delete lines from the transcript and re-export the clip |
@@ -31,7 +31,7 @@ AI-powered long-form video clipping: import from **Bilibili / YouTube links** or
 
 - **Backend**: Python 3.10+, FastAPI, SQLAlchemy, Celery, Redis, SQLite
 - **Frontend**: React 18, TypeScript, Vite, Ant Design, Zustand
-- **Media**: FFmpeg, yt-dlp, **openai-whisper** (local speech-to-text when no SRT)
+- **Media**: FFmpeg, yt-dlp, **faster-whisper** (default local ASR; SenseVoice / openai-whisper optional)
 - **AI**: DashScope / Qwen by default; other providers in Settings
 - **Deploy**: Docker Compose (prod serves UI + API on one origin; dev splits ports)
 
@@ -48,25 +48,26 @@ AI-powered long-form video clipping: import from **Bilibili / YouTube links** or
 **Option B (local) needs:**
 
 - Python 3.10+, Node.js 18+, Redis, FFmpeg
-- `pip install -r requirements.txt` installs `openai-whisper` (includes PyTorch; large download)
+- `pip install -r requirements.txt` installs `faster-whisper` (default), `funasr`, `openai-whisper`, etc. (large download)
 
 ### Hardware recommendations
 
-Local Whisper (when no SRT is provided) needs more CPU/RAM than API-only usage:
+Local ASR (default faster-whisper, when no SRT is provided) needs more CPU/RAM than API-only usage:
 
 | Scenario | CPU | RAM | Disk | Notes |
 |----------|-----|-----|------|--------|
-| Minimum | 4 cores | 8 GB | 20 GB+ | Short videos + Whisper `tiny`/`base`; first Docker build/model download is slow |
-| **Recommended** | 8+ cores | **16 GB** | 40 GB+ | Day-to-day clipping; smoother with `base`/`small` |
-| Comfortable | 8+ cores / Apple Silicon | 32 GB | 60 GB+ | Long videos, `small`/`medium`; NVIDIA GPU speeds Whisper a lot |
+| Minimum | 4 cores | 8 GB | 20 GB+ | Short videos + `tiny`/`base` (`int8`); first Docker build/model download is slow |
+| **Recommended** | 8+ cores | **16 GB** | 40 GB+ | Day-to-day clipping; smoother with `faster_whisper` + `base` |
+| Comfortable | 8+ cores / Apple Silicon | 32 GB | 60 GB+ | Long videos, `small`/`medium`; NVIDIA GPU helps a lot |
 
 Notes:
 
-- **Disk**: Docker image includes PyTorch; also reserve space for Whisper model cache and videos under `data/`  
+- **Disk**: Docker image includes PyTorch / CTranslate2; also reserve space for ASR model cache and videos under `data/`  
 - **GPU (optional)**: Not required; CPU works, but long videos are slower  
   - **Default Docker is CPU** — use `./docker-start.sh` without a GPU  
   - With NVIDIA: `./docker-start.sh gpu` (overlay `docker-compose.gpu.yml`; needs driver + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html))  
 - **SRT provided (no speech recognition)**: 8 GB RAM is often enough for import + AI pipeline  
+- **Switch ASR**: set `SPEECH_RECOGNITION_METHOD=faster_whisper|sensevoice|whisper_local` in `.env` (see `env.example`)  
 
 ---
 
@@ -101,7 +102,7 @@ API_DASHSCOPE_API_KEY=sk-your-key
 ./docker-start.sh
 ```
 
-The first run builds images (including the frontend bundle) and may take a while (Whisper / PyTorch make the image large). Then open:
+The first run builds images (including the frontend bundle) and may take a while (ASR / PyTorch make the image large). Then open:
 
 | URL | What |
 |-----|------|
@@ -119,7 +120,7 @@ The first run builds images (including the frontend bundle) and may take a while
 ./docker-stop.sh            # stop everything
 docker compose logs -f      # logs
 
-# Optional: NVIDIA GPU for Whisper (do not use without a GPU)
+# Optional: NVIDIA GPU for ASR / Whisper (do not use without a GPU)
 ./docker-start.sh gpu
 ```
 
@@ -147,7 +148,7 @@ cp env.example .env
 
 python3 -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
-pip install -r requirements.txt   # includes openai-whisper; first install is slow
+pip install -r requirements.txt   # includes faster-whisper, etc.; first install is slow
 
 cd frontend && npm install && cd ..
 
@@ -177,7 +178,7 @@ Copy `env.example` to `.env`:
 
 See `env.example` for processing tunables (chunk size, score threshold, etc.).
 
-**Redis** is used for Celery task queues (import, Whisper, pipeline, …) and progress caching. Project data lives in SQLite under `data/`, not in Redis.
+**Redis** is used for Celery task queues (import, ASR, pipeline, …) and progress caching. Project data lives in SQLite under `data/`, not in Redis.
 
 ---
 
@@ -236,7 +237,16 @@ Base path: `/api/v1` (interactive docs at `/docs`)
 Check the API key in `.env` or Settings. Docker loads `.env` via `env_file`.
 
 **No subtitles / speech recognition?**  
-Without an SRT, local **Whisper** (`openai-whisper`) generates subtitles. The default Docker image is CPU-oriented. On CPU, the first run downloads a model (`base` / `small`, etc.). With NVIDIA, use `./docker-start.sh gpu`; Whisper picks `cuda` when available (`WHISPER_DEVICE` can force `cpu`/`cuda`).
+Without an SRT, **faster-whisper** generates subtitles by default (stable segment timestamps, usually lower memory than stock Whisper). You can switch in `.env`:
+
+```bash
+SPEECH_RECOGNITION_METHOD=faster_whisper   # default
+SPEECH_RECOGNITION_MODEL=base              # tiny/base/small/...
+# SPEECH_RECOGNITION_METHOD=sensevoice     # FunASR SenseVoice (multilingual)
+# SPEECH_RECOGNITION_METHOD=whisper_local  # stock openai-whisper
+```
+
+The default Docker image is CPU-oriented; the first run downloads models. With NVIDIA, use `./docker-start.sh gpu`. Force device with `WHISPER_DEVICE` / `FASTER_WHISPER_DEVICE` (`cpu`/`cuda`); on CPU, `FASTER_WHISPER_COMPUTE_TYPE=int8` is recommended.
 
 **Docker build is slow or apt fails?**  
 First builds pull PyTorch and other large deps. If apt returns `502` or cannot reach the mirror, retry later or change `DEBIAN_MIRROR` in the Dockerfile (e.g. `mirrors.tuna.tsinghua.edu.cn`).
