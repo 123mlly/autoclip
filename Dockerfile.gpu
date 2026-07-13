@@ -35,16 +35,22 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---------------------------------------------------------------------------
-# Python 依赖：先装 CUDA 版 torch，再装业务依赖与 whisper
+# Python 依赖：先装 CUDA 版 torch，再装业务依赖与 ASR
 # ---------------------------------------------------------------------------
 FROM ${CUDA_IMAGE} AS backend-builder
 
 ARG TORCH_CUDA_INDEX=https://download.pytorch.org/whl/cu121
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ARG PIP_TRUSTED_HOST=mirrors.aliyun.com
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PIP_NO_CACHE_DIR=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
+ENV PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
+ENV PIP_DEFAULT_TIMEOUT=180
+ENV PIP_RETRIES=10
 
 WORKDIR /app
 
@@ -58,13 +64,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install --no-cache-dir --upgrade pip \
-    && pip3 install --no-cache-dir torch torchaudio --index-url "${TORCH_CUDA_INDEX}"
+    && pip3 install --no-cache-dir --default-timeout=300 --retries=10 \
+       torch torchaudio --index-url "${TORCH_CUDA_INDEX}"
 
 COPY requirements.txt ./
-RUN grep -v '^openai-whisper' requirements.txt > /tmp/requirements.base.txt \
-    && pip3 install --no-cache-dir -r /tmp/requirements.base.txt \
-    && pip3 install --no-cache-dir openai-whisper \
-    && pip3 install --no-cache-dir --force-reinstall torch torchaudio --index-url "${TORCH_CUDA_INDEX}" \
+# 排除已装 torchaudio / 重 ASR 包，避免与 CUDA wheel 冲突、减少超时
+RUN grep -vE '^(openai-whisper|funasr|torchaudio|faster-whisper)$' requirements.txt > /tmp/requirements.base.txt \
+    && pip3 install --no-cache-dir --default-timeout=180 --retries=10 -r /tmp/requirements.base.txt \
+    && pip3 install --no-cache-dir --default-timeout=300 --retries=10 faster-whisper funasr openai-whisper \
+    && pip3 install --no-cache-dir --force-reinstall --default-timeout=300 --retries=10 \
+       torch torchaudio --index-url "${TORCH_CUDA_INDEX}" \
     && rm -rf /tmp/requirements.base.txt \
     && SITE=$(python3 -c "import site; print(site.getsitepackages()[0])") \
     && mkdir -p /export \

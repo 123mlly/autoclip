@@ -80,9 +80,9 @@ class ProcessingConfig(BaseModel):
 
 class SpeechRecognitionConfig(BaseModel):
     """语音识别配置"""
-    method: str = Field(default="whisper_local", description="识别方法")
+    method: str = Field(default="faster_whisper", description="识别方法")
     language: str = Field(default="auto", description="识别语言")
-    model: str = Field(default="base", description="模型大小")
+    model: str = Field(default="base", description="模型名称/大小")
     timeout: int = Field(default=1000, description="识别超时时间")
 
 

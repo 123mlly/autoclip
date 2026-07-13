@@ -103,10 +103,16 @@ PROMPT_FILES = {
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
 MODEL_NAME = os.getenv("API_MODEL_NAME", os.getenv("MODEL_NAME", "qwen3.7-plus"))  # 通义千问模型名称
 
-# 语音识别配置
-SPEECH_RECOGNITION_METHOD = os.getenv("SPEECH_RECOGNITION_METHOD", "whisper_local")
+# 语音识别配置（faster_whisper | sensevoice | whisper_local | ...）
+SPEECH_RECOGNITION_METHOD = os.getenv("SPEECH_RECOGNITION_METHOD", "faster_whisper")
 SPEECH_RECOGNITION_LANGUAGE = os.getenv("SPEECH_RECOGNITION_LANGUAGE", "auto")
-SPEECH_RECOGNITION_MODEL = os.getenv("SPEECH_RECOGNITION_MODEL", "base")
+_SPEECH_METHOD = (SPEECH_RECOGNITION_METHOD or "faster_whisper").strip().lower()
+_DEFAULT_SPEECH_MODEL = {
+    "sensevoice": "iic/SenseVoiceSmall",
+    "faster_whisper": "base",
+    "whisper_local": "base",
+}.get(_SPEECH_METHOD, "base")
+SPEECH_RECOGNITION_MODEL = os.getenv("SPEECH_RECOGNITION_MODEL", _DEFAULT_SPEECH_MODEL)
 SPEECH_RECOGNITION_TIMEOUT = int(os.getenv("SPEECH_RECOGNITION_TIMEOUT", "1000"))
 
 # 处理参数
@@ -142,7 +148,7 @@ class Settings(BaseModel):
     min_topics_per_chunk: int = 3
     max_topics_per_chunk: int = 8
     # 语音识别配置
-    speech_recognition_method: str = "whisper_local"
+    speech_recognition_method: str = "faster_whisper"
     speech_recognition_language: str = "auto"
     speech_recognition_model: str = "base"
     speech_recognition_timeout: int = 1000

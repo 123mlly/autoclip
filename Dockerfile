@@ -29,12 +29,17 @@ RUN npm run build
 FROM python:3.10-slim AS backend-builder
 
 ARG DEBIAN_MIRROR=mirrors.aliyun.com
+# 镜像源超时可换：--build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple/
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ARG PIP_TRUSTED_HOST=mirrors.aliyun.com
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PIP_NO_CACHE_DIR=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
-ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
-ENV PIP_TRUSTED_HOST=mirrors.aliyun.com
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
+ENV PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
+ENV PIP_DEFAULT_TIMEOUT=180
+ENV PIP_RETRIES=10
 
 WORKDIR /app
 
@@ -47,10 +52,10 @@ RUN sed -i "s/deb.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list.d/debian.
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
-# 先装轻量依赖，再单独装 whisper（层缓存：改业务依赖时不必重下 torch）
-RUN grep -v '^openai-whisper' requirements.txt > /tmp/requirements.base.txt \
-    && pip install --no-cache-dir -r /tmp/requirements.base.txt \
-    && pip install --no-cache-dir openai-whisper \
+# 业务依赖与 ASR 重依赖分层：超时更少、缓存更稳
+RUN grep -vE '^(openai-whisper|funasr|torchaudio|faster-whisper)$' requirements.txt > /tmp/requirements.base.txt \
+    && pip install --no-cache-dir --default-timeout=180 --retries=10 -r /tmp/requirements.base.txt \
+    && pip install --no-cache-dir --default-timeout=300 --retries=10 faster-whisper torchaudio funasr openai-whisper \
     && rm -rf /tmp/requirements.base.txt
 
 # 第三阶段：运行镜像（仅运行时需要的系统包）

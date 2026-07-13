@@ -27,7 +27,11 @@ google-auth-httplib2
 # bilitool>=0.1.3  # 已移除，改用直接API调用
 qrcode[pil]
 yt-dlp[default]>=2024.12.13
-# 语音识别：使用本地 openai-whisper（Docker 构建时单独安装以利用层缓存）
+# 语音识别：默认 faster-whisper（省内存、段级时间戳稳）
+# 可选：sensevoice / whisper_local
+faster-whisper
+funasr
+torchaudio
 openai-whisper
 pysrt
 psutil

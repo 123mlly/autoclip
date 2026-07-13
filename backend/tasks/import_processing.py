@@ -80,11 +80,16 @@ def process_import_task(
             srt_path = str(raw_srt)
             logger.info(f"复用已有字幕: {srt_path}")
         else:
-            logger.info(f"开始为项目 {project_id} 生成字幕（Celery Whisper）...")
+            logger.info(f"开始为项目 {project_id} 生成字幕（Celery ASR）...")
             self.update_state(state="PROGRESS", meta={"progress": 40, "message": "生成字幕..."})
 
             try:
                 from backend.utils.speech_recognizer import generate_subtitle_for_video
+                from backend.core.shared_config import (
+                    SPEECH_RECOGNITION_METHOD,
+                    SPEECH_RECOGNITION_LANGUAGE,
+                    SPEECH_RECOGNITION_MODEL,
+                )
 
                 project = project_service.get(project_id)
                 video_category = "knowledge"
@@ -102,24 +107,32 @@ def process_import_task(
                     })
                     db.commit()
 
-                model = "base"
-                if video_category in ["business", "knowledge"]:
-                    model = "small"
-                elif video_category == "speech":
-                    model = "medium"
+                method = (SPEECH_RECOGNITION_METHOD or "faster_whisper").strip().lower()
+                language = SPEECH_RECOGNITION_LANGUAGE or "auto"
+                if method == "sensevoice":
+                    model = SPEECH_RECOGNITION_MODEL or "iic/SenseVoiceSmall"
+                elif method in ("faster_whisper", "whisper_local"):
+                    model = SPEECH_RECOGNITION_MODEL or "base"
+                    if method == "whisper_local" and model in ("tiny", "base", "small", "medium", "large"):
+                        if video_category in ["business", "knowledge"] and model == "base":
+                            model = "small"
+                        elif video_category == "speech" and model in ("base", "small"):
+                            model = "medium"
+                else:
+                    model = SPEECH_RECOGNITION_MODEL or "base"
 
-                logger.info(f"使用Whisper生成字幕 - 语言: auto, 模型: {model}")
+                logger.info(f"使用 {method} 生成字幕 - 语言: {language}, 模型: {model}")
 
                 output_path = video_file.parent / "input.srt"
                 generated_subtitle = generate_subtitle_for_video(
                     video_file,
                     output_path=output_path,
-                    language="auto",
+                    language=language,
                     model=model,
-                    method="whisper_local",
+                    method=method,
                 )
                 srt_path = str(_ensure_raw_srt(project_id, video_file, Path(generated_subtitle)))
-                logger.info(f"Whisper字幕生成成功: {srt_path}")
+                logger.info(f"字幕生成成功 ({method}): {srt_path}")
 
                 if project:
                     if not project.processing_config:

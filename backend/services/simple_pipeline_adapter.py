@@ -50,19 +50,30 @@ class SimplePipelineAdapter:
                     emit_progress(self.project_id, "SUBTITLE", "使用已有字幕", subpercent=40)
                     return raw_srt
                 
-                logger.info("尝试使用 Whisper 本地模型生成字幕")
+                from backend.core.shared_config import (
+                    SPEECH_RECOGNITION_METHOD,
+                    SPEECH_RECOGNITION_LANGUAGE,
+                    SPEECH_RECOGNITION_MODEL,
+                )
+                method = (SPEECH_RECOGNITION_METHOD or "faster_whisper").strip().lower()
+                language = SPEECH_RECOGNITION_LANGUAGE or "auto"
+                if method == "sensevoice":
+                    model = SPEECH_RECOGNITION_MODEL or "iic/SenseVoiceSmall"
+                else:
+                    model = SPEECH_RECOGNITION_MODEL or "base"
+                logger.info(f"尝试使用 {method} 生成字幕 (model={model})")
                 output_path = metadata_dir / f"{video_file_path.stem}.srt"
                 srt_path = generate_subtitle_for_video(
                     video_file_path,
                     output_path=output_path,
-                    method="whisper_local",
-                    model="base",
-                    language="auto"
+                    method=method,
+                    model=model,
+                    language=language,
                 )
                 
                 if srt_path and Path(srt_path).exists():
                     srt_path = Path(srt_path)
-                    logger.info(f"Whisper生成字幕成功: {srt_path}")
+                    logger.info(f"字幕生成成功 ({method}): {srt_path}")
                     # 落到标准路径，供后续重试/二次启动直接使用
                     try:
                         if srt_path.resolve() != raw_srt.resolve():
@@ -73,10 +84,10 @@ class SimplePipelineAdapter:
                     emit_progress(self.project_id, "SUBTITLE", "AI字幕生成完成", subpercent=40)
                     return raw_srt if raw_srt.exists() else srt_path
                 else:
-                    logger.warning("Whisper生成字幕失败")
+                    logger.warning(f"{method} 生成字幕失败")
                     
             except Exception as e:
-                logger.warning(f"Whisper生成字幕失败: {e}")
+                logger.warning(f"自动生成字幕失败: {e}")
             
             logger.error("Whisper ASR 失败")
             return None
