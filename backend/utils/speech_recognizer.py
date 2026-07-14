@@ -654,6 +654,169 @@ class SpeechRecognizer:
             return None
         return {"start": start, "end": end, "text": text}
 
+    @staticmethod
+    def _clean_sensevoice_token(token: Any) -> str:
+        """Normalize model tokens while preserving explicit word boundaries."""
+        if token is None:
+            return ""
+        text = re.sub(r"<\|[^|]*\|>", "", str(token))
+        return text.replace("▁", " ")
+
+    def _align_sensevoice_tokens_to_text(
+        self, tokens: List[str], source_text: Any
+    ) -> Optional[List[str]]:
+        """Recover spaces and punctuation exactly as emitted in the full text."""
+        source = self._clean_sensevoice_text(source_text)
+        if not source or not tokens:
+            return None
+        aligned: List[str] = []
+        cursor = 0
+        for raw_token in tokens:
+            token = raw_token.strip()
+            if not token:
+                return None
+            position = source.find(token, cursor)
+            if position < 0:
+                return None
+            end = position + len(token)
+            aligned.append(source[cursor:end])
+            cursor = end
+        if cursor < len(source):
+            aligned[-1] += source[cursor:]
+        return aligned
+
+    @staticmethod
+    def _join_sensevoice_tokens(
+        tokens: List[str], preserve_source_boundaries: bool = False
+    ) -> str:
+        if preserve_source_boundaries:
+            return re.sub(r"\s+", " ", "".join(tokens)).strip()
+        text = ""
+        for raw_token in tokens:
+            explicit_space = bool(raw_token[:1].isspace())
+            token = raw_token.strip()
+            if not token:
+                continue
+            needs_ascii_space = (
+                bool(text)
+                and token[0].isascii()
+                and token[0].isalnum()
+                and (
+                    (text[-1].isascii() and text[-1].isalnum())
+                    or text[-1] in ",:"
+                )
+            )
+            if text and (explicit_space or needs_ascii_space):
+                text += " "
+            text += token
+        return re.sub(r"\s+", " ", text).strip()
+
+    def _extract_sensevoice_timed_tokens(
+        self, item: Dict[str, Any], audio_duration_ms: int = 0
+    ) -> Tuple[List[Tuple[str, int, int]], bool]:
+        """Return strictly aligned (token, start_ms, end_ms) entries."""
+        values = item.get("timestamp") or item.get("timestamps") or []
+        if not isinstance(values, (list, tuple)) or not values:
+            return [], False
+
+        words = item.get("words")
+        words_aligned = isinstance(words, (list, tuple)) and len(words) == len(values)
+        timed_tokens: List[Tuple[str, int, int]] = []
+        previous_end = -1
+
+        for index, timestamp in enumerate(values):
+            token: Any = None
+            start: Optional[int] = None
+            end: Optional[int] = None
+
+            if isinstance(timestamp, dict):
+                token = timestamp.get("token", timestamp.get("word"))
+                if token is None and words_aligned:
+                    token = words[index]
+                if "start_time" in timestamp and "end_time" in timestamp:
+                    try:
+                        start = int(float(timestamp["start_time"]) * 1000)
+                        end = int(float(timestamp["end_time"]) * 1000)
+                    except (TypeError, ValueError):
+                        return [], False
+                else:
+                    start = self._normalize_ts_ms(timestamp.get("start"))
+                    end = self._normalize_ts_ms(timestamp.get("end"))
+            elif isinstance(timestamp, (list, tuple)) and len(timestamp) >= 2:
+                if words_aligned:
+                    token = words[index]
+                    start = self._normalize_ts_ms(timestamp[0])
+                    end = self._normalize_ts_ms(timestamp[1])
+                elif len(timestamp) >= 3 and isinstance(timestamp[0], str):
+                    token = timestamp[0]
+                    start = self._normalize_ts_ms(timestamp[1])
+                    end = self._normalize_ts_ms(timestamp[2])
+            else:
+                return [], False
+
+            token_text = self._clean_sensevoice_token(token)
+            if not token_text.strip() or start is None or end is None:
+                return [], False
+            if audio_duration_ms > 0:
+                end = min(end, audio_duration_ms)
+            if start < 0 or end <= start or start < previous_end:
+                return [], False
+            timed_tokens.append((token_text, start, end))
+            previous_end = end
+
+        aligned_text = self._align_sensevoice_tokens_to_text(
+            [token for token, _, _ in timed_tokens], item.get("text", "")
+        )
+        if aligned_text is not None:
+            timed_tokens = [
+                (text, start, end)
+                for text, (_, start, end) in zip(aligned_text, timed_tokens)
+            ]
+            return timed_tokens, True
+        return timed_tokens, False
+
+    def _group_sensevoice_timed_tokens(
+        self,
+        timed_tokens: List[Tuple[str, int, int]],
+        max_chars: int = 42,
+        max_duration_ms: int = 8000,
+        preserve_source_boundaries: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Aggregate aligned tokens into readable, non-overlapping SRT cues."""
+        segments: List[Dict[str, Any]] = []
+        current: List[Tuple[str, int, int]] = []
+
+        def flush() -> None:
+            if not current:
+                return
+            text = self._join_sensevoice_tokens(
+                [token for token, _, _ in current], preserve_source_boundaries
+            )
+            if text:
+                segments.append(
+                    {"start": current[0][1], "end": current[-1][2], "text": text}
+                )
+            current.clear()
+
+        for timed_token in timed_tokens:
+            token, _, end = timed_token
+            candidate_text = self._join_sensevoice_tokens(
+                [value for value, _, _ in current] + [token],
+                preserve_source_boundaries,
+            )
+            exceeds_chars = bool(current) and len(candidate_text) > max_chars
+            exceeds_duration = (
+                bool(current) and end - current[0][1] > max_duration_ms
+            )
+            if exceeds_chars or exceeds_duration:
+                flush()
+            current.append(timed_token)
+            if re.search(r"[。！？；!?.;]$", token.strip()):
+                flush()
+
+        flush()
+        return segments
+
     def _extract_sensevoice_segments(
         self, result: Any, audio_duration_ms: int = 0
     ) -> List[Dict[str, Any]]:
@@ -661,10 +824,45 @@ class SpeechRecognizer:
         items = result if isinstance(result, list) else [result]
         segments: List[Dict[str, Any]] = []
 
+        # 1) SenseVoice 的 words + CTC timestamp 比 VAD sentence_info 更精细。
+        # 只有每个有文本的结果都能严格对齐时才采用，避免部分解析导致丢字。
+        aligned_segments: List[Dict[str, Any]] = []
+        has_text_item = False
+        all_text_items_aligned = True
         for item in items:
             if not isinstance(item, dict):
                 continue
-            # 1) sentence_info（带 VAD/说话人时最可靠）
+            text = self._clean_sensevoice_text(item.get("text", ""))
+            if not text:
+                continue
+            has_text_item = True
+            timed_tokens, preserve_source_boundaries = self._extract_sensevoice_timed_tokens(
+                item, audio_duration_ms
+            )
+            item_segments = self._group_sensevoice_timed_tokens(
+                timed_tokens,
+                preserve_source_boundaries=preserve_source_boundaries,
+            )
+            if not item_segments:
+                all_text_items_aligned = False
+                break
+            aligned_segments.extend(item_segments)
+
+        if (
+            has_text_item
+            and all_text_items_aligned
+            and aligned_segments
+            and all(
+                current["start"] >= previous["end"]
+                for previous, current in zip(aligned_segments, aligned_segments[1:])
+            )
+        ):
+            return aligned_segments
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            # 2) sentence_info（无细粒度 CTC 对齐时的可靠回退）
             for seg in item.get("sentence_info", []) or []:
                 if isinstance(seg, dict):
                     parsed = self._segment_from_dict(seg)
@@ -674,7 +872,7 @@ class SpeechRecognizer:
         if segments:
             return segments
 
-        # 2) 多段结果：每项自带 start/end（VAD 切段后逐段识别）
+        # 3) 多段结果：每项自带 start/end（VAD 切段后逐段识别）
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -715,7 +913,7 @@ class SpeechRecognizer:
         if segments:
             return segments
 
-        # 3) 最后回退：全文 + 真实音频时长按标点切分（绝不用 1 秒假时间轴）
+        # 4) 最后回退：全文 + 真实音频时长按标点切分（绝不用 1 秒假时间轴）
         full_text = " ".join(
             self._clean_sensevoice_text(item.get("text", ""))
             for item in items
@@ -780,6 +978,7 @@ class SpeechRecognizer:
                 "batch_size_s": 60,
                 "merge_vad": False,
                 "sentence_timestamp": True,
+                "output_timestamp": True,
             }
             logger.info(
                 f"SenseVoice 推理: model={model_name}, device={device}, "
