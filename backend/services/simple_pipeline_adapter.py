@@ -58,9 +58,10 @@ class SimplePipelineAdapter:
                 method = (SPEECH_RECOGNITION_METHOD or "faster_whisper").strip().lower()
                 language = SPEECH_RECOGNITION_LANGUAGE or "auto"
                 if method == "sensevoice":
-                    model = SPEECH_RECOGNITION_MODEL or "iic/SenseVoiceSmall"
-                else:
-                    model = SPEECH_RECOGNITION_MODEL or "base"
+                    raise RuntimeError(
+                        "SenseVoice（funasr）已移除，请改用 SPEECH_RECOGNITION_METHOD=faster_whisper"
+                    )
+                model = SPEECH_RECOGNITION_MODEL or "base"
                 logger.info(f"尝试使用 {method} 生成字幕 (model={model})")
                 output_path = metadata_dir / f"{video_file_path.stem}.srt"
                 srt_path = generate_subtitle_for_video(

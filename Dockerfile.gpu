@@ -69,9 +69,9 @@ RUN pip3 install --no-cache-dir --upgrade pip \
 
 COPY requirements.txt ./
 # 排除已装 torchaudio / 重 ASR 包，避免与 CUDA wheel 冲突、减少超时
-RUN grep -vE '^(openai-whisper|funasr|torchaudio|faster-whisper)$' requirements.txt > /tmp/requirements.base.txt \
+RUN grep -vE '^(openai-whisper|faster-whisper)$' requirements.txt > /tmp/requirements.base.txt \
     && pip3 install --no-cache-dir --default-timeout=180 --retries=10 -r /tmp/requirements.base.txt \
-    && pip3 install --no-cache-dir --default-timeout=300 --retries=10 faster-whisper funasr openai-whisper \
+    && pip3 install --no-cache-dir --default-timeout=300 --retries=10 faster-whisper openai-whisper \
     && pip3 install --no-cache-dir --force-reinstall --default-timeout=300 --retries=10 \
        torch torchaudio --index-url "${TORCH_CUDA_INDEX}" \
     && rm -rf /tmp/requirements.base.txt \

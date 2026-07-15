@@ -31,7 +31,7 @@ AI-powered long-form video clipping: import from **Bilibili / YouTube links** or
 
 - **Backend**: Python 3.10+, FastAPI, SQLAlchemy, Celery, Redis, SQLite
 - **Frontend**: React 18, TypeScript, Vite, Ant Design, Zustand
-- **Media**: FFmpeg, yt-dlp, **faster-whisper** (default local ASR; SenseVoice / openai-whisper optional)
+- **Media**: FFmpeg, yt-dlp, **faster-whisper** (default local ASR; openai-whisper optional)
 - **AI**: DashScope / Qwen by default; other providers in Settings
 - **Deploy**: Docker Compose (prod serves UI + API on one origin; dev splits ports)
 
@@ -48,7 +48,7 @@ AI-powered long-form video clipping: import from **Bilibili / YouTube links** or
 **Option B (local) needs:**
 
 - Python 3.10+, Node.js 18+, Redis, FFmpeg
-- `pip install -r requirements.txt` installs `faster-whisper` (default), `funasr`, `openai-whisper`, etc. (large download)
+- `pip install -r requirements.txt` installs `faster-whisper` (default) and `openai-whisper` (large download)
 
 ### Hardware recommendations
 
@@ -67,7 +67,7 @@ Notes:
   - **Default Docker is CPU** — use `./docker-start.sh` without a GPU  
   - With NVIDIA: `./docker-start.sh gpu` (overlay `docker-compose.gpu.yml`; needs driver + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html))  
 - **SRT provided (no speech recognition)**: 8 GB RAM is often enough for import + AI pipeline  
-- **Switch ASR**: set `SPEECH_RECOGNITION_METHOD=faster_whisper|sensevoice|whisper_local` in `.env` (see `env.example`)  
+- **Switch ASR**: set `SPEECH_RECOGNITION_METHOD=faster_whisper|whisper_local` in `.env` (see `env.example`)  
 
 ---
 
@@ -242,7 +242,6 @@ Without an SRT, **faster-whisper** generates subtitles by default (stable segmen
 ```bash
 SPEECH_RECOGNITION_METHOD=faster_whisper   # default
 SPEECH_RECOGNITION_MODEL=base              # tiny/base/small/...
-# SPEECH_RECOGNITION_METHOD=sensevoice     # FunASR SenseVoice (multilingual)
 # SPEECH_RECOGNITION_METHOD=whisper_local  # stock openai-whisper
 ```
 

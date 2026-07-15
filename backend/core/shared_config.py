@@ -103,12 +103,11 @@ PROMPT_FILES = {
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
 MODEL_NAME = os.getenv("API_MODEL_NAME", os.getenv("MODEL_NAME", "qwen3.7-plus"))  # 通义千问模型名称
 
-# 语音识别配置（faster_whisper | sensevoice | whisper_local | ...）
+# 语音识别配置（faster_whisper | whisper_local | ...）
 SPEECH_RECOGNITION_METHOD = os.getenv("SPEECH_RECOGNITION_METHOD", "faster_whisper")
 SPEECH_RECOGNITION_LANGUAGE = os.getenv("SPEECH_RECOGNITION_LANGUAGE", "auto")
 _SPEECH_METHOD = (SPEECH_RECOGNITION_METHOD or "faster_whisper").strip().lower()
 _DEFAULT_SPEECH_MODEL = {
-    "sensevoice": "iic/SenseVoiceSmall",
     "faster_whisper": "base",
     "whisper_local": "base",
 }.get(_SPEECH_METHOD, "base")

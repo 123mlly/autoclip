@@ -254,13 +254,8 @@ class SpeechRecognizer:
             return False
 
     def _check_sensevoice_availability(self) -> bool:
-        """检查 SenseVoice（funasr）是否可用"""
-        try:
-            import funasr  # noqa: F401
-            return True
-        except ImportError:
-            logger.debug("SenseVoice 不可用：未安装 funasr")
-            return False
+        """SenseVoice / FunASR 已从默认依赖移除"""
+        return False
 
     def _check_openai_availability(self) -> bool:
         """检查OpenAI API是否可用"""
@@ -383,7 +378,9 @@ class SpeechRecognizer:
             elif config.method == SpeechRecognitionMethod.FASTER_WHISPER:
                 return self._generate_subtitle_faster_whisper(video_path, output_path, config)
             elif config.method == SpeechRecognitionMethod.SENSEVOICE:
-                return self._generate_subtitle_sensevoice(video_path, output_path, config)
+                raise SpeechRecognitionError(
+                    "SenseVoice（funasr）已移除，请使用 method=faster_whisper"
+                )
             elif config.method == SpeechRecognitionMethod.OPENAI_API:
                 return self._generate_subtitle_openai_api(video_path, output_path, config)
             elif config.method == SpeechRecognitionMethod.AZURE_SPEECH:
@@ -1214,7 +1211,6 @@ def generate_subtitle_for_video(video_path: Path, output_path: Optional[Path] = 
         available_methods = recognizer.get_available_methods()
         priority_methods = [
             SpeechRecognitionMethod.FASTER_WHISPER,
-            SpeechRecognitionMethod.SENSEVOICE,
             SpeechRecognitionMethod.WHISPER_LOCAL,
             SpeechRecognitionMethod.OPENAI_API,
             SpeechRecognitionMethod.AZURE_SPEECH,
@@ -1228,11 +1224,9 @@ def generate_subtitle_for_video(video_path: Path, output_path: Optional[Path] = 
         if selected_method is None:
             raise SpeechRecognitionError(
                 "没有可用的语音识别服务，请安装: "
-                "pip install faster-whisper 或 funasr 或 openai-whisper"
+                "pip install faster-whisper 或 openai-whisper"
             )
-        if selected_method == SpeechRecognitionMethod.SENSEVOICE:
-            selected_model = env_model or SENSEVOICE_DEFAULT_MODEL
-        elif selected_method == SpeechRecognitionMethod.FASTER_WHISPER:
+        if selected_method == SpeechRecognitionMethod.FASTER_WHISPER:
             selected_model = normalize_faster_whisper_model(env_model or model or "base")
         else:
             selected_model = model if model in WHISPER_MODELS else (env_model or "base")
@@ -1241,14 +1235,13 @@ def generate_subtitle_for_video(video_path: Path, output_path: Optional[Path] = 
         selected_method = SpeechRecognitionMethod(method)
         if selected_method == SpeechRecognitionMethod.BCUT_ASR:
             raise SpeechRecognitionError(
-                "bcut-asr 已停用，请使用 method=faster_whisper / whisper_local / sensevoice"
+                "bcut-asr 已停用，请使用 method=faster_whisper 或 whisper_local"
             )
         if selected_method == SpeechRecognitionMethod.SENSEVOICE:
-            selected_model = (
-                model if model and model not in WHISPER_MODELS
-                else (env_model or SENSEVOICE_DEFAULT_MODEL)
+            raise SpeechRecognitionError(
+                "SenseVoice（funasr）已移除，请使用 method=faster_whisper"
             )
-        elif selected_method == SpeechRecognitionMethod.FASTER_WHISPER:
+        if selected_method == SpeechRecognitionMethod.FASTER_WHISPER:
             selected_model = normalize_faster_whisper_model(model or env_model or "base")
         else:
             selected_model = model

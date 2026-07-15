@@ -110,7 +110,10 @@ def process_import_task(
                 method = (SPEECH_RECOGNITION_METHOD or "faster_whisper").strip().lower()
                 language = SPEECH_RECOGNITION_LANGUAGE or "auto"
                 if method == "sensevoice":
-                    model = SPEECH_RECOGNITION_MODEL or "iic/SenseVoiceSmall"
+                    # FunASR / SenseVoice 已从默认依赖移除
+                    raise RuntimeError(
+                        "SenseVoice（funasr）已移除，请改用 SPEECH_RECOGNITION_METHOD=faster_whisper"
+                    )
                 elif method in ("faster_whisper", "whisper_local"):
                     model = SPEECH_RECOGNITION_MODEL or "base"
                     if method == "whisper_local" and model in ("tiny", "base", "small", "medium", "large"):

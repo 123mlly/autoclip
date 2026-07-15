@@ -53,9 +53,9 @@ RUN sed -i "s/deb.debian.org/${DEBIAN_MIRROR}/g" /etc/apt/sources.list.d/debian.
 
 COPY requirements.txt ./
 # 业务依赖与 ASR 重依赖分层：超时更少、缓存更稳
-RUN grep -vE '^(openai-whisper|funasr|torchaudio|faster-whisper)$' requirements.txt > /tmp/requirements.base.txt \
+RUN grep -vE '^(openai-whisper|faster-whisper)$' requirements.txt > /tmp/requirements.base.txt \
     && pip install --no-cache-dir --default-timeout=180 --retries=10 -r /tmp/requirements.base.txt \
-    && pip install --no-cache-dir --default-timeout=300 --retries=10 faster-whisper torchaudio funasr openai-whisper \
+    && pip install --no-cache-dir --default-timeout=300 --retries=10 faster-whisper openai-whisper \
     && rm -rf /tmp/requirements.base.txt
 
 # 第三阶段：运行镜像（仅运行时需要的系统包）

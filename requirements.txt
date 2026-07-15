@@ -28,10 +28,8 @@ google-auth-httplib2
 qrcode[pil]
 yt-dlp[default]>=2024.12.13
 # 语音识别：默认 faster-whisper（省内存、段级时间戳稳）
-# 可选：sensevoice / whisper_local
+# 可选：whisper_local（openai-whisper）
 faster-whisper
-funasr
-torchaudio
 openai-whisper
 pysrt
 psutil
