@@ -8,6 +8,8 @@ import { subtitleEditorApi } from '../services/subtitleEditorApi'
 import { SubtitleSegment, VideoEditOperation } from '../types/subtitle'
 import UploadModal from './UploadModal'
 import EditableTitle from './EditableTitle'
+import ClipUploadBadges from './ClipUploadBadges'
+import { ClipUploadStatus } from '../utils/clipUploadStatus'
 import './ClipCard.css'
 
 interface ClipCardProps {
@@ -16,6 +18,8 @@ interface ClipCardProps {
   onDownload: (clipId: string) => void
   projectId?: string
   onClipUpdate?: (clipId: string, updates: Partial<Clip>) => void
+  uploadStatus?: ClipUploadStatus
+  onUploadStatusRefresh?: () => void
 }
 
 const ClipCard: React.FC<ClipCardProps> = ({ 
@@ -23,7 +27,9 @@ const ClipCard: React.FC<ClipCardProps> = ({
   videoUrl, 
   onDownload,
   projectId,
-  onClipUpdate
+  onClipUpdate,
+  uploadStatus,
+  onUploadStatusRefresh,
 }) => {
   const [coverStatus, setCoverStatus] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [showPlayer, setShowPlayer] = useState(false)
@@ -244,7 +250,7 @@ const ClipCard: React.FC<ClipCardProps> = ({
           className="clip-card"
           hoverable
           style={{ 
-            height: '380px',
+            height: '400px',
             borderRadius: '16px',
             border: '1px solid #d5dde6',
             background: '#ffffff',
@@ -393,7 +399,7 @@ const ClipCard: React.FC<ClipCardProps> = ({
         >
           <div style={{ 
             padding: '16px', 
-            height: '180px', 
+            height: '200px', 
             display: 'flex', 
             flexDirection: 'column',
             justifyContent: 'space-between'
@@ -461,14 +467,14 @@ const ClipCard: React.FC<ClipCardProps> = ({
               </div>
             </div>
             
-            {/* 操作按钮 - 固定在底部 */}
-            <div style={{ 
-              display: 'flex', 
-              gap: '8px',
-              height: '28px',
-              alignItems: 'center',
-              marginTop: 'auto'
-            }}>
+            {/* 操作区 - 固定在底部 */}
+            <div style={{ marginTop: 'auto' }}>
+              <div style={{ 
+                display: 'flex', 
+                gap: '8px',
+                height: '28px',
+                alignItems: 'center',
+              }}>
               <Button 
                 type="text" 
                 size="small"
@@ -526,6 +532,8 @@ const ClipCard: React.FC<ClipCardProps> = ({
               >
                 投稿
               </Button>
+              </div>
+              <ClipUploadBadges uploadStatus={uploadStatus} />
             </div>
           </div>
         </Card>
@@ -649,8 +657,9 @@ const ClipCard: React.FC<ClipCardProps> = ({
         clipIds={[clip.id]}
         clipTitles={[clip.title || clip.generated_title || '视频片段']}
         onSuccess={() => {
-          message.success('投稿任务已创建')
+          onUploadStatusRefresh?.()
         }}
+        onTaskCreated={onUploadStatusRefresh}
       />
     </>
   )

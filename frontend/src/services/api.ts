@@ -131,12 +131,12 @@ export interface DownloadTaskCreateResponse {
 export const settingsApi = {
   // 获取系统配置
   getSettings: (): Promise<any> => {
-    return api.get('/settings')
+    return api.get('/settings/')
   },
 
   // 更新系统配置
   updateSettings: (settings: any): Promise<any> => {
-    return api.post('/settings', settings)
+    return api.post('/settings/', settings)
   },
 
   // 测试API密钥

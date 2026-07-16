@@ -13,7 +13,11 @@ from sqlalchemy.orm import Session
 
 from ...core.database import get_db
 from ...services.youtube_upload_service import YouTubeAccountService, YouTubeUploadService
-from ...services.youtube_uploader import build_authorization_url, oauth_configured
+from ...services.youtube_uploader import (
+    build_authorization_url,
+    get_oauth_frontend_redirect_base,
+    oauth_configured,
+)
 from ...tasks.upload import upload_youtube_clip_task
 
 logger = logging.getLogger(__name__)
@@ -42,6 +46,7 @@ class RefreshTokenImportRequest(BaseModel):
 
 class OAuthCodeRequest(BaseModel):
     code: str
+    state: Optional[str] = None
     nickname: Optional[str] = None
 
 
@@ -71,7 +76,7 @@ async def get_youtube_upload_config():
         "message": (
             "已配置 Google OAuth"
             if oauth_configured()
-            else "请在 .env 中设置 YOUTUBE_CLIENT_ID 与 YOUTUBE_CLIENT_SECRET"
+            else "请在设置页 YouTube管理 或 .env 中配置 Client ID / Client Secret"
         ),
     }
 
@@ -80,8 +85,7 @@ async def get_youtube_upload_config():
 async def start_oauth(nickname: Optional[str] = None):
     """获取 Google OAuth 授权链接。"""
     try:
-        state = nickname or "autoclip"
-        auth_url, state = build_authorization_url(state=state)
+        auth_url, state = build_authorization_url(nickname=nickname)
         return {"auth_url": auth_url, "state": state}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -95,17 +99,23 @@ async def oauth_callback(
     account_service: YouTubeAccountService = Depends(get_account_service),
 ):
     """OAuth 回调：换取 token 并保存账号，然后跳转前端设置页。"""
-    frontend_redirect = "http://localhost:3000/settings?youtube=1"
+    frontend_redirect = get_oauth_frontend_redirect_base()
     if error:
         return RedirectResponse(f"{frontend_redirect}&error={error}")
     if not code:
         raise HTTPException(status_code=400, detail="缺少授权码 code")
-    try:
-        nickname = state if state and state != "autoclip" else None
-        account = account_service.create_from_oauth_code(code, nickname=nickname)
+    if not state:
+        from urllib.parse import quote
+
         return RedirectResponse(
-            f"{frontend_redirect}&success=1&channel={account.channel_title or ''}"
+            f"{frontend_redirect}&error={quote('缺少 OAuth state，请重新发起授权')}"
         )
+    try:
+        account = account_service.create_from_oauth_code(code, state=state)
+        from urllib.parse import quote
+
+        channel = quote(account.channel_title or "")
+        return RedirectResponse(f"{frontend_redirect}&success=1&channel={channel}")
     except Exception as e:
         logger.exception("YouTube OAuth 回调失败")
         from urllib.parse import quote
@@ -119,7 +129,11 @@ async def import_oauth_code(
 ):
     """手动提交授权码（适用于无法自动回调的场景）。"""
     try:
-        account = account_service.create_from_oauth_code(request.code, nickname=request.nickname)
+        account = account_service.create_from_oauth_code(
+            request.code,
+            nickname=request.nickname,
+            state=request.state,
+        )
         return YouTubeAccountResponse.from_orm(account)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

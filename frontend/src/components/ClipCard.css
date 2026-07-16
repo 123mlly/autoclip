@@ -36,3 +36,36 @@
 .clip-card .ant-btn-primary:hover {
   background: var(--accent-hover) !important;
 }
+
+.clip-upload-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.clip-upload-status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 500;
+  transition: opacity 0.2s ease;
+}
+
+.clip-upload-status-tag__icon {
+  display: inline-flex;
+  font-size: 11px;
+}
+
+.clip-upload-status-tag--clickable {
+  cursor: pointer;
+}
+
+.clip-upload-status-tag--clickable:hover {
+  opacity: 0.85;
+}

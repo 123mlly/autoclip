@@ -40,6 +40,7 @@ interface UploadModalProps {
   clipIds: string[]
   clipTitles: string[]
   onSuccess?: () => void
+  onTaskCreated?: () => void
 }
 
 interface UploadProgress {
@@ -57,7 +58,8 @@ const UploadModal: React.FC<UploadModalProps> = ({
   projectId,
   clipIds,
   clipTitles,
-  onSuccess
+  onSuccess,
+  onTaskCreated,
 }) => {
   const [form] = Form.useForm()
   const [platform, setPlatform] = useState<UploadPlatform>('bilibili')
@@ -163,6 +165,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
 
       startPolling(String(response.record_id), platform)
       message.success('投稿任务创建成功！')
+      onTaskCreated?.()
     } catch (error: any) {
       console.error('创建投稿任务失败:', error)
       const detail = error?.response?.data?.detail || error?.message || '未知错误'

@@ -46,6 +46,28 @@ export const YOUTUBE_CATEGORIES: YouTubeCategory[] = [
   { id: '2', name: 'Autos & Vehicles' },
 ]
 
+export interface YouTubeUploadRecord {
+  id: number
+  project_id?: string
+  account_id: number
+  clip_id?: string
+  title: string
+  description?: string
+  tags?: string
+  category_id?: string
+  privacy_status?: string
+  video_id?: string
+  video_url?: string
+  status: string
+  error_message?: string
+  progress: number
+  file_size?: number
+  created_at: string
+  updated_at: string
+  account_title?: string
+  channel_id?: string
+}
+
 export const youtubeUploadApi = {
   getConfig: async (): Promise<{ configured: boolean; message: string }> => {
     return api.get('/youtube-upload/config')
@@ -95,8 +117,20 @@ export const youtubeUploadApi = {
     return api.get(`/youtube-upload/records/${recordId}`)
   },
 
-  getUploadRecords: async (projectId?: string) => {
+  getUploadRecords: async (projectId?: string): Promise<YouTubeUploadRecord[]> => {
     return api.get('/youtube-upload/records', { params: projectId ? { project_id: projectId } : {} })
+  },
+
+  retryUploadRecord: async (recordId: string | number): Promise<{ message: string }> => {
+    return api.post(`/youtube-upload/records/${recordId}/retry`)
+  },
+
+  cancelUploadRecord: async (recordId: string | number): Promise<{ message: string }> => {
+    return api.post(`/youtube-upload/records/${recordId}/cancel`)
+  },
+
+  deleteUploadRecord: async (recordId: string | number): Promise<{ message: string }> => {
+    return api.delete(`/youtube-upload/records/${recordId}`)
   },
 
   getCategories: async (): Promise<YouTubeCategory[]> => {

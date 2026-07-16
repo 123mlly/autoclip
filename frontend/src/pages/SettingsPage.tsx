@@ -12,7 +12,10 @@ const { TabPane } = Tabs
 
 const SettingsPage: React.FC = () => {
   const [form] = Form.useForm()
+  const [youtubeForm] = Form.useForm()
   const [loading, setLoading] = useState(false)
+  const [youtubeLoading, setYoutubeLoading] = useState(false)
+  const [youtubeConfigured, setYoutubeConfigured] = useState(false)
   const [showBilibiliManager, setShowBilibiliManager] = useState(false)
   const [showYouTubeManager, setShowYouTubeManager] = useState(false)
   const [availableModels, setAvailableModels] = useState<any>({})
@@ -85,6 +88,15 @@ const SettingsPage: React.FC = () => {
       
       // 设置表单初始值
       form.setFieldsValue(settings)
+      youtubeForm.setFieldsValue({
+        youtube_client_id: settings.youtube_client_id || '',
+        youtube_client_secret: settings.youtube_client_secret || '',
+        youtube_redirect_uri:
+          settings.youtube_redirect_uri ||
+          'http://localhost:8000/api/v1/youtube-upload/oauth/callback',
+        youtube_oauth_frontend_url: settings.youtube_oauth_frontend_url || '',
+      })
+      setYoutubeConfigured(Boolean(settings.youtube_client_id && settings.youtube_client_secret))
     } catch (error) {
       console.error('加载数据失败:', error)
     }
@@ -131,6 +143,20 @@ const SettingsPage: React.FC = () => {
       message.error('测试失败: ' + (error.message || '未知错误'))
     } finally {
       setLoading(false)
+    }
+  }
+
+  // 保存 YouTube OAuth 配置
+  const handleYoutubeSave = async (values: any) => {
+    try {
+      setYoutubeLoading(true)
+      await settingsApi.updateSettings(values)
+      message.success('YouTube OAuth 配置已保存')
+      await loadData()
+    } catch (error: any) {
+      message.error('保存失败: ' + (error.message || '未知错误'))
+    } finally {
+      setYoutubeLoading(false)
     }
   }
 
@@ -477,39 +503,102 @@ const SettingsPage: React.FC = () => {
           </TabPane>
 
           <TabPane tab="YouTube管理" key="youtube">
-            <Card title="YouTube 账号管理" className="settings-card">
-              <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-                <UserOutlined style={{ fontSize: '48px', color: '#ff4d4f', marginBottom: '16px' }} />
-                <Title level={3} style={{ color: '#ffffff', margin: '0 0 8px 0' }}>
-                  YouTube 账号管理
-                </Title>
-                <Text type="secondary" style={{ color: '#b0b0b0', fontSize: '16px', display: 'block', marginBottom: 24 }}>
-                  通过 Google OAuth 授权频道，支持投稿到 YouTube
-                </Text>
-                <Button
-                  type="primary"
-                  size="large"
-                  icon={<UserOutlined />}
-                  onClick={() => setShowYouTubeManager(true)}
-                  style={{
-                    borderRadius: '8px',
-                    background: '#d64545',
-                    border: 'none',
-                    height: '48px',
-                    padding: '0 32px',
-                  }}
+            <Card title="YouTube OAuth 配置" className="settings-card">
+              <Alert
+                type={youtubeConfigured ? 'success' : 'warning'}
+                showIcon
+                style={{ marginBottom: 24 }}
+                message={youtubeConfigured ? 'YouTube OAuth 已配置' : '尚未配置 YouTube OAuth'}
+                description={
+                  youtubeConfigured
+                    ? '可在下方修改 Client ID / Secret，保存后即可授权新账号。'
+                    : '在 Google Cloud Console 创建 OAuth 客户端后，在此填写 Client ID 与 Client Secret。'
+                }
+              />
+
+              <Form
+                form={youtubeForm}
+                layout="vertical"
+                className="settings-form"
+                onFinish={handleYoutubeSave}
+              >
+                <Form.Item
+                  label="Client ID"
+                  name="youtube_client_id"
+                  rules={[{ required: true, message: '请输入 Client ID' }]}
                 >
-                  管理 YouTube 账号
-                </Button>
-                <div style={{ marginTop: 24, textAlign: 'left', maxWidth: 640, margin: '24px auto 0' }}>
-                  <Alert
-                    type="info"
-                    showIcon
-                    message="配置说明"
-                    description="在 Google Cloud Console 创建 OAuth 客户端后，将 Client ID/Secret 写入 .env（YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET），回调地址设为 http://localhost:8000/api/v1/youtube-upload/oauth/callback"
+                  <Input placeholder="xxxx.apps.googleusercontent.com" className="settings-input" />
+                </Form.Item>
+
+                <Form.Item
+                  label="Client Secret"
+                  name="youtube_client_secret"
+                  rules={[{ required: true, message: '请输入 Client Secret' }]}
+                >
+                  <Input.Password placeholder="Google OAuth Client Secret" className="settings-input" />
+                </Form.Item>
+
+                <Form.Item
+                  label="OAuth 回调地址"
+                  name="youtube_redirect_uri"
+                  extra="需在 Google Cloud Console 的「已授权的重定向 URI」中添加此地址"
+                >
+                  <Input
+                    placeholder="http://localhost:8000/api/v1/youtube-upload/oauth/callback"
+                    className="settings-input"
                   />
-                </div>
-              </div>
+                </Form.Item>
+
+                <Form.Item
+                  label="授权完成后跳转的前端地址（可选）"
+                  name="youtube_oauth_frontend_url"
+                  extra="Docker 仅暴露 8000 端口时可填 http://localhost:8000；留空则默认 http://localhost:3000"
+                >
+                  <Input placeholder="http://localhost:3000" className="settings-input" />
+                </Form.Item>
+
+                <Form.Item>
+                  <Space>
+                    <Button
+                      type="primary"
+                      htmlType="submit"
+                      icon={<SaveOutlined />}
+                      loading={youtubeLoading}
+                      style={{ background: '#d64545', border: 'none' }}
+                    >
+                      保存 OAuth 配置
+                    </Button>
+                    <Button
+                      icon={<UserOutlined />}
+                      disabled={!youtubeConfigured}
+                      onClick={() => setShowYouTubeManager(true)}
+                    >
+                      管理 YouTube 账号
+                    </Button>
+                  </Space>
+                </Form.Item>
+              </Form>
+
+              <Divider />
+
+              <Alert
+                type="info"
+                showIcon
+                message="Google Cloud 配置步骤"
+                description={
+                  <div>
+                    <Paragraph style={{ marginBottom: 8 }}>
+                      1. 打开 Google Cloud Console，创建 OAuth 2.0 客户端（Web 应用）
+                    </Paragraph>
+                    <Paragraph style={{ marginBottom: 8 }}>
+                      2. 将上方「OAuth 回调地址」添加到已授权的重定向 URI
+                    </Paragraph>
+                    <Paragraph style={{ marginBottom: 0 }}>
+                      3. 保存 Client ID / Secret 后，点击「管理 YouTube 账号」进行 Google 授权
+                    </Paragraph>
+                  </div>
+                }
+              />
             </Card>
           </TabPane>
         </Tabs>

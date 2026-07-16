@@ -24,6 +24,7 @@ import CollectionCard from '../components/CollectionCard'
 import CollectionPreviewModal from '../components/CollectionPreviewModal'
 import CreateCollectionModal from '../components/CreateCollectionModal'
 import { useCollectionVideoDownload } from '../hooks/useCollectionVideoDownload'
+import { useClipUploadStatus } from '../hooks/useClipUploadStatus'
 import { ProjectTaskManager } from '../components/ProjectTaskManager'
 // import { useWebSocket, WebSocketEventMessage } from '../hooks/useWebSocket'  // 已禁用WebSocket系统
 
@@ -54,6 +55,7 @@ const ProjectDetailPage: React.FC = () => {
   const [showCollectionDetail, setShowCollectionDetail] = useState(false)
   const [selectedCollection, setSelectedCollection] = useState<any>(null)
   const { generateAndDownloadCollectionVideo } = useCollectionVideoDownload()
+  const { statusMap: clipUploadStatusMap, refresh: refreshClipUploadStatus } = useClipUploadStatus(id)
 
   // WebSocket连接已禁用，使用新的简化进度系统
   // const handleWebSocketMessage = (message: WebSocketEventMessage) => {
@@ -566,6 +568,8 @@ const ProjectDetailPage: React.FC = () => {
                     key={clip.id}
                     clip={clip}
                     projectId={currentProject.id}
+                    uploadStatus={clipUploadStatusMap[clip.id]}
+                    onUploadStatusRefresh={refreshClipUploadStatus}
                     videoUrl={projectApi.getClipVideoUrl(currentProject.id, clip.id, clip.title || clip.generated_title)}
                     onDownload={(clipId) => projectApi.downloadVideo(currentProject.id, clipId)}
                     onClipUpdate={(clipId: string, updates: Partial<Clip>) => {

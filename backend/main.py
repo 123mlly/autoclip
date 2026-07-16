@@ -59,6 +59,13 @@ async def startup_event():
         logger.info("API密钥已加载到环境变量")
     else:
         logger.warning("未找到API密钥配置")
+
+    try:
+        from .api.v1.settings import load_settings, apply_youtube_oauth_to_env
+        apply_youtube_oauth_to_env(load_settings())
+        logger.info("YouTube OAuth 配置已从 settings 加载")
+    except Exception as e:
+        logger.warning("加载 YouTube OAuth 配置失败: %s", e)
     
     # 启动WebSocket网关服务 - 已禁用，使用新的简化进度系统
     # from .services.websocket_gateway_service import websocket_gateway_service

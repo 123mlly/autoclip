@@ -7,10 +7,17 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+_OAUTH_PKCE_TTL_SEC = 600
+_OAUTH_PKCE_REDIS_PREFIX = "youtube_oauth:pkce:"
+# Redis 不可用时的单进程内存兜底（开发环境）
+_oauth_pkce_memory: Dict[str, Tuple[float, str]] = {}
 
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
@@ -19,19 +26,88 @@ SCOPES = [YOUTUBE_UPLOAD_SCOPE, YOUTUBE_READONLY_SCOPE]
 
 def get_youtube_oauth_config() -> Dict[str, str]:
     """从环境变量读取 OAuth 配置。"""
+    from ..core.youtube_settings import get_youtube_oauth_config as _get_cfg
+
+    cfg = _get_cfg()
     return {
-        "client_id": os.getenv("YOUTUBE_CLIENT_ID", "").strip(),
-        "client_secret": os.getenv("YOUTUBE_CLIENT_SECRET", "").strip(),
-        "redirect_uri": os.getenv(
-            "YOUTUBE_REDIRECT_URI",
-            "http://localhost:8000/api/v1/youtube-upload/oauth/callback",
-        ).strip(),
+        "client_id": cfg["client_id"],
+        "client_secret": cfg["client_secret"],
+        "redirect_uri": cfg["redirect_uri"],
     }
 
 
 def oauth_configured() -> bool:
+    from ..core.youtube_settings import oauth_configured as _configured
+
+    return _configured()
+
+
+def get_oauth_frontend_redirect_base() -> str:
+    from ..core.youtube_settings import get_oauth_frontend_redirect_base as _base
+
+    return _base()
+
+
+def _oauth_pkce_redis():
+    import redis
+
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    return redis.Redis.from_url(redis_url, decode_responses=True)
+
+
+def _store_oauth_pkce(state: str, code_verifier: str, nickname: Optional[str] = None) -> None:
+    payload = json.dumps({"code_verifier": code_verifier, "nickname": nickname})
+    key = f"{_OAUTH_PKCE_REDIS_PREFIX}{state}"
+    try:
+        client = _oauth_pkce_redis()
+        client.setex(key, _OAUTH_PKCE_TTL_SEC, payload)
+        return
+    except Exception as e:
+        logger.warning("Redis 不可用，OAuth PKCE 使用内存存储（单进程）: %s", e)
+    _oauth_pkce_memory[state] = (time.time() + _OAUTH_PKCE_TTL_SEC, payload)
+
+
+def _pop_oauth_pkce(state: str) -> Optional[Dict[str, Any]]:
+    if not state:
+        return None
+    key = f"{_OAUTH_PKCE_REDIS_PREFIX}{state}"
+    try:
+        client = _oauth_pkce_redis()
+        raw = client.get(key)
+        if raw:
+            client.delete(key)
+            return json.loads(raw)
+    except Exception as e:
+        logger.warning("从 Redis 读取 OAuth PKCE 失败，尝试内存: %s", e)
+
+    entry = _oauth_pkce_memory.pop(state, None)
+    if not entry:
+        return None
+    expires_at, payload = entry
+    if time.time() > expires_at:
+        return None
+    return json.loads(payload)
+
+
+def _create_oauth_flow(state: Optional[str] = None):
+    from google_auth_oauthlib.flow import Flow
+
+    if not oauth_configured():
+        raise ValueError("未配置 YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET")
+
     cfg = get_youtube_oauth_config()
-    return bool(cfg["client_id"] and cfg["client_secret"])
+    client_config = {
+        "web": {
+            "client_id": cfg["client_id"],
+            "client_secret": cfg["client_secret"],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": [cfg["redirect_uri"]],
+        }
+    }
+    flow = Flow.from_client_config(client_config, scopes=SCOPES, state=state)
+    flow.redirect_uri = cfg["redirect_uri"]
+    return flow
 
 
 class YouTubeUploader:
@@ -182,52 +258,34 @@ class YouTubeUploader:
         return json.dumps(payload)
 
 
-def build_authorization_url(state: str = "autoclip") -> Tuple[str, str]:
-    """返回 (auth_url, state)。"""
-    from google_auth_oauthlib.flow import Flow
-
-    if not oauth_configured():
-        raise ValueError("未配置 YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET")
-
-    cfg = get_youtube_oauth_config()
-    client_config = {
-        "web": {
-            "client_id": cfg["client_id"],
-            "client_secret": cfg["client_secret"],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "redirect_uris": [cfg["redirect_uri"]],
-        }
-    }
-    flow = Flow.from_client_config(client_config, scopes=SCOPES, state=state)
-    flow.redirect_uri = cfg["redirect_uri"]
-    auth_url, state = flow.authorization_url(
+def build_authorization_url(nickname: Optional[str] = None) -> Tuple[str, str]:
+    """返回 (auth_url, state)。state 用于回调时取回 PKCE code_verifier。"""
+    oauth_state = secrets.token_urlsafe(32)
+    flow = _create_oauth_flow(state=oauth_state)
+    auth_url, oauth_state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
     )
-    return auth_url, state
+    code_verifier = getattr(flow, "code_verifier", None)
+    if not code_verifier:
+        raise RuntimeError("OAuth Flow 未生成 code_verifier，无法完成 PKCE 授权")
+    _store_oauth_pkce(oauth_state, code_verifier, nickname=nickname)
+    logger.info("YouTube OAuth 已生成 state=%s…", oauth_state[:8])
+    return auth_url, oauth_state
 
 
-def exchange_code_for_credentials(code: str) -> Dict[str, Any]:
-    """用授权码换取 credentials 字典。"""
-    from google_auth_oauthlib.flow import Flow
+def exchange_code_for_credentials(code: str, state: Optional[str] = None) -> Dict[str, Any]:
+    """用授权码换取 credentials 字典（需与 /oauth/start 返回的 state 配对）。"""
+    pkce = _pop_oauth_pkce(state or "")
+    if not pkce or not pkce.get("code_verifier"):
+        raise ValueError(
+            "OAuth 会话已过期或 state 无效。请重新点击「Google 授权登录」，"
+            "不要刷新或重复使用旧的授权回调链接。"
+        )
 
-    if not oauth_configured():
-        raise ValueError("未配置 YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET")
-
-    cfg = get_youtube_oauth_config()
-    client_config = {
-        "web": {
-            "client_id": cfg["client_id"],
-            "client_secret": cfg["client_secret"],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "redirect_uris": [cfg["redirect_uri"]],
-        }
-    }
-    flow = Flow.from_client_config(client_config, scopes=SCOPES)
-    flow.redirect_uri = cfg["redirect_uri"]
+    flow = _create_oauth_flow(state=state)
+    flow.code_verifier = pkce["code_verifier"]
     flow.fetch_token(code=code)
     creds = flow.credentials
     return {
@@ -237,4 +295,5 @@ def exchange_code_for_credentials(code: str) -> Dict[str, Any]:
         "client_id": creds.client_id,
         "client_secret": creds.client_secret,
         "scopes": list(creds.scopes or SCOPES),
+        "_oauth_nickname": pkce.get("nickname"),
     }

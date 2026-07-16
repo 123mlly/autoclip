@@ -79,11 +79,14 @@ class YouTubeAccountService:
         self.db.refresh(account)
         return account
 
-    def create_from_oauth_code(self, code: str, nickname: Optional[str] = None) -> YouTubeAccount:
+    def create_from_oauth_code(
+        self, code: str, nickname: Optional[str] = None, state: Optional[str] = None
+    ) -> YouTubeAccount:
         if not oauth_configured():
-            raise ValueError("未配置 YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET")
-        credentials = exchange_code_for_credentials(code)
-        return self.create_from_credentials(credentials, nickname=nickname)
+            raise ValueError("未配置 YouTube OAuth，请在设置页 YouTube管理 填写 Client ID / Secret")
+        credentials = exchange_code_for_credentials(code, state=state)
+        resolved_nickname = nickname or credentials.pop("_oauth_nickname", None)
+        return self.create_from_credentials(credentials, nickname=resolved_nickname)
 
     def create_from_refresh_token(
         self,
@@ -107,7 +110,7 @@ class YouTubeAccountService:
             ],
         }
         if not credentials["client_id"] or not credentials["client_secret"]:
-            raise ValueError("请提供 client_id/client_secret，或在 .env 中配置 YOUTUBE_CLIENT_ID/SECRET")
+            raise ValueError("请提供 client_id/client_secret，或在设置页 / .env 中配置 OAuth")
         return self.create_from_credentials(credentials, nickname=nickname)
 
     def delete_account(self, account_id) -> bool:

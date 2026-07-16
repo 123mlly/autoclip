@@ -23,6 +23,10 @@ class SettingsRequest(BaseModel):
     chunk_size: Optional[int] = None
     min_score_threshold: Optional[float] = None
     max_clips_per_collection: Optional[int] = None
+    youtube_client_id: Optional[str] = None
+    youtube_client_secret: Optional[str] = None
+    youtube_redirect_uri: Optional[str] = None
+    youtube_oauth_frontend_url: Optional[str] = None
 
 class ApiKeyTestRequest(BaseModel):
     """API密钥测试请求"""
@@ -52,7 +56,11 @@ def load_settings() -> Dict[str, Any]:
         "model_name": "qwen3.7-plus",
         "chunk_size": 5000,
         "min_score_threshold": 0.7,
-        "max_clips_per_collection": 5
+        "max_clips_per_collection": 5,
+        "youtube_client_id": "",
+        "youtube_client_secret": "",
+        "youtube_redirect_uri": "http://localhost:8000/api/v1/youtube-upload/oauth/callback",
+        "youtube_oauth_frontend_url": "",
     }
     
     if settings_file.exists():
@@ -77,6 +85,7 @@ def save_settings(settings: Dict[str, Any]):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"保存设置失败: {e}")
 
+@router.get("")
 @router.get("/")
 async def get_settings():
     """获取系统设置"""
@@ -87,6 +96,7 @@ async def get_settings():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"加载设置失败: {e}")
 
+@router.post("")
 @router.post("/")
 async def update_settings(request: SettingsRequest):
     """更新系统设置"""
@@ -122,9 +132,23 @@ async def update_settings(request: SettingsRequest):
         
         if request.max_clips_per_collection is not None:
             settings["max_clips_per_collection"] = request.max_clips_per_collection
-        
+
+        if request.youtube_client_id is not None:
+            settings["youtube_client_id"] = request.youtube_client_id.strip()
+
+        if request.youtube_client_secret is not None:
+            settings["youtube_client_secret"] = request.youtube_client_secret.strip()
+
+        if request.youtube_redirect_uri is not None:
+            settings["youtube_redirect_uri"] = request.youtube_redirect_uri.strip()
+
+        if request.youtube_oauth_frontend_url is not None:
+            settings["youtube_oauth_frontend_url"] = request.youtube_oauth_frontend_url.strip()
+
         # 保存设置
         save_settings(settings)
+
+        apply_youtube_oauth_to_env(settings)
         
         # 更新LLM管理器
         try:
@@ -137,6 +161,26 @@ async def update_settings(request: SettingsRequest):
         return {"message": "设置更新成功"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"更新设置失败: {e}")
+
+def apply_youtube_oauth_to_env(settings: Dict[str, Any]) -> None:
+    from ...core.youtube_settings import apply_youtube_oauth_to_env as _apply
+
+    _apply(settings)
+
+
+@router.get("/youtube-oauth")
+async def get_youtube_oauth_settings():
+    """获取 YouTube OAuth 配置状态（不含 secret 明文时可仍返回，与现有 settings 一致）。"""
+    from ...core.youtube_settings import get_youtube_oauth_config, oauth_configured
+
+    cfg = get_youtube_oauth_config()
+    return {
+        "configured": oauth_configured(),
+        "youtube_client_id": cfg["client_id"],
+        "youtube_client_secret": cfg["client_secret"],
+        "youtube_redirect_uri": cfg["redirect_uri"],
+        "youtube_oauth_frontend_url": cfg["frontend_url"],
+    }
 
 @router.post("/test-api-key")
 async def test_api_key(request: ApiKeyTestRequest) -> ApiKeyTestResponse:
