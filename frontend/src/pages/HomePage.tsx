@@ -184,7 +184,7 @@ const HomePage: React.FC = () => {
                 </button>
               </div>
 
-              <div>
+              <div style={{ minHeight: 168 }}>
                 {activeTab === 'bilibili' && (
                   <BilibiliDownload onDownloadSuccess={async () => {
                     await loadProjects(false)

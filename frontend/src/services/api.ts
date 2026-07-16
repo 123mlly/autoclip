@@ -534,6 +534,58 @@ export const bilibiliApi = {
     return api.delete('/youtube/cookies')
   },
 
+  parseDouyinVideoInfo: async (url: string, browser?: string): Promise<{success: boolean, video_info: BilibiliVideoInfo, used_browser?: string | null, used_cookiefile?: boolean}> => {
+    const formData = new FormData()
+    formData.append('url', url)
+    if (browser) {
+      formData.append('browser', browser)
+    }
+    return api.post('/douyin/parse', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+  },
+
+  getDouyinCookiesStatus: async (): Promise<{
+    configured: boolean
+    path: string
+    size?: number
+    updated_at?: string
+    in_docker?: boolean
+    hint?: string
+  }> => {
+    return api.get('/douyin/cookies/status')
+  },
+
+  uploadDouyinCookies: async (file: File): Promise<{
+    success: boolean
+    configured: boolean
+    path: string
+    size: number
+    message: string
+  }> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post('/douyin/cookies', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+  },
+
+  deleteDouyinCookies: async (): Promise<{ success: boolean; configured: boolean }> => {
+    return api.delete('/douyin/cookies')
+  },
+
+  createDouyinDownloadTask: async (data: BilibiliDownloadRequest): Promise<DownloadTaskCreateResponse & Partial<BilibiliDownloadTask>> => {
+    return api.post('/douyin/download', data)
+  },
+
+  getDouyinTaskStatus: async (taskId: string): Promise<BilibiliDownloadTask> => {
+    return api.get(`/douyin/tasks/${taskId}`)
+  },
+
   // 创建B站下载任务
   createDownloadTask: async (data: BilibiliDownloadRequest): Promise<DownloadTaskCreateResponse & Partial<BilibiliDownloadTask>> => {
     return api.post('/bilibili/download', data)

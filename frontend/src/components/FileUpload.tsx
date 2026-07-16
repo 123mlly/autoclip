@@ -223,16 +223,22 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
         {...getRootProps()} 
         className={`upload-area ${isDragActive ? 'dragover' : ''}`}
         style={{
+          minHeight: 160,
           padding: '24px 16px',
           textAlign: 'center',
-          marginBottom: '16px',
+          marginBottom: 0,
           background: isDragActive ? 'rgba(14, 124, 102, 0.12)' : '#f7f9fb',
           border: `2px dashed ${isDragActive ? '#0e7c66' : 'rgba(14, 124, 102, 0.28)'}`,
           borderRadius: '16px',
           cursor: 'pointer',
           transition: 'all 0.3s ease',
           position: 'relative',
-          backdropFilter: 'blur(10px)'
+          backdropFilter: 'blur(10px)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxSizing: 'border-box',
         }}
       >
         <input {...getInputProps()} />

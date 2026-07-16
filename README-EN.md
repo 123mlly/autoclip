@@ -1,6 +1,6 @@
 # AutoClip
 
-AI-powered long-form video clipping: import from **Bilibili / YouTube links** or **local files**, analyze transcripts with an LLM, auto-cut clips and themed collections, refine by subtitle lines, and publish to Bilibili or YouTube.
+AI-powered long-form video clipping: import from **Bilibili / YouTube / Douyin links** or **local files**, analyze transcripts with an LLM, auto-cut clips and themed collections, refine by subtitle lines, and publish to Bilibili or YouTube.
 
 [![Python](https://img.shields.io/badge/Python-3.10+-green?style=flat&logo=python)](https://python.org)
 [![React](https://img.shields.io/badge/React-18-blue?style=flat&logo=react)](https://reactjs.org)
@@ -16,7 +16,7 @@ AI-powered long-form video clipping: import from **Bilibili / YouTube links** or
 
 | Feature | Description |
 |---------|-------------|
-| Link import | Paste a Bilibili or YouTube URL; download and create a project |
+| Link import | Paste a Bilibili / YouTube / Douyin URL; download and create a project |
 | File import | Upload a local video (optional SRT); local ASR (default **faster-whisper**) if no subtitles |
 | AI pipeline | Outline → timestamps → scoring → titles → clustering → FFmpeg cuts |
 | Clips & collections | Preview/download clips; AI collections; manual create & drag reorder |
@@ -64,8 +64,8 @@ Notes:
 
 - **Disk**: Docker image includes PyTorch / CTranslate2; also reserve space for ASR model cache and videos under `data/`  
 - **GPU (optional)**: Not required; CPU works, but long videos are slower  
-  - **Default Docker is CPU** — use `./docker-start.sh` without a GPU  
-  - With NVIDIA: `./docker-start.sh gpu` (overlay `docker-compose.gpu.yml`; needs driver + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html))  
+  - **Default Docker is CPU**: `./docker-start.sh` (Windows: `docker-start.bat`)  
+  - With NVIDIA: `./docker-start.sh gpu` / `docker-start.bat gpu` (overlay `docker-compose.gpu.yml`; needs driver + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html))  
 - **SRT provided (no speech recognition)**: 8 GB RAM is often enough for import + AI pipeline  
 - **Switch ASR**: set `SPEECH_RECOGNITION_METHOD=faster_whisper|whisper_local` in `.env` (see `env.example`)  
 
@@ -74,6 +74,11 @@ Notes:
 ### Option A: Docker (recommended)
 
 Best for most users: one command starts Redis, the **frontend**, API, and Celery workers.
+
+| OS | Start script |
+|----|--------------|
+| macOS / Linux / WSL | `./docker-start.sh` |
+| Windows (CMD) | `docker-start.bat` (requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) running) |
 
 **1. Clone**
 
@@ -85,7 +90,11 @@ cd autoclip
 **2. Set API key (required for AI)**
 
 ```bash
+# macOS / Linux / WSL
 cp env.example .env
+
+# Windows CMD
+copy env.example .env
 ```
 
 Edit `.env` and set your DashScope / Qwen key:
@@ -94,12 +103,17 @@ Edit `.env` and set your DashScope / Qwen key:
 API_DASHSCOPE_API_KEY=sk-your-key
 ```
 
-> The UI can start without a key, but AI clipping will not work. You can also set the key later in Settings.
+> The UI can start without a key, but AI clipping will not work. You can also set the key later in Settings.  
+> If `.env` is missing, the start script copies it from `env.example`.
 
 **3. Start**
 
 ```bash
+# macOS / Linux / WSL
 ./docker-start.sh
+
+# Windows CMD
+docker-start.bat
 ```
 
 The first run builds images (including the frontend bundle) and may take a while (ASR / PyTorch make the image large). Then open:
@@ -110,26 +124,27 @@ The first run builds images (including the frontend bundle) and may take a while
 | http://localhost:8000/api/v1 | Backend API |
 | http://localhost:8000/docs | API docs |
 
-> Note: `./docker-start.sh` already includes the frontend. The image runs `npm run build`, then serves the web UI and API together on port **8000**. Only `./docker-start.sh dev` starts a separate Vite server on **3000**.  
+> Note: The start script already includes the frontend. The image runs `npm run build`, then serves the web UI and API together on port **8000**. Only `dev` mode starts a separate Vite server on **3000**.  
 > Inside Docker, `REDIS_URL` is set to `redis://redis:6379/0` (Compose service name); you do not need to change the localhost default in `.env` for local runs.
 
 **4. Useful commands**
 
-```bash
-./docker-status.sh          # status
-./docker-stop.sh            # stop everything
-docker compose logs -f      # logs
+| Action | macOS / Linux / WSL | Windows CMD |
+|--------|---------------------|-------------|
+| Status | `./docker-status.sh` | `docker-status.bat` |
+| Stop | `./docker-stop.sh` | `docker-stop.bat` |
+| Logs | `docker compose logs -f` | same |
+| GPU start | `./docker-start.sh gpu` | `docker-start.bat gpu` |
+| Dev mode | `./docker-start.sh dev` | `docker-start.bat dev` |
 
-# Optional: NVIDIA GPU for ASR / Whisper (do not use without a GPU)
-./docker-start.sh gpu
-```
+Do not use `gpu` without an NVIDIA GPU—startup may fail.
 
 **Dev mode (hot reload)**
 
 For day-to-day use, prefer the production start above. To edit source with hot reload:
 
 ```bash
-./docker-start.sh dev
+./docker-start.sh dev      # Windows: docker-start.bat dev
 ```
 
 - Frontend: http://localhost:3000  
@@ -208,7 +223,9 @@ autoclip/
 ├── docker-compose.dev.yml
 ├── Dockerfile
 ├── Dockerfile.gpu           # CUDA worker image
-├── docker-start.sh
+├── docker-start.sh / .bat
+├── docker-stop.sh / .bat
+├── docker-status.sh / .bat
 ├── start_autoclip.sh
 └── env.example
 ```
@@ -223,7 +240,7 @@ Base path: `/api/v1` (interactive docs at `/docs`)
 |------|--------|---------|
 | Projects | `/projects` | CRUD, status, download, retry |
 | Clips / collections | `/clips`, `/collections` | CRUD, titles, reorder |
-| Import | `/bilibili`, `/youtube` | Parse & download |
+| Import | `/bilibili`, `/youtube`, `/douyin` | Parse & download |
 | Subtitles | `/subtitle-editor` | Preview & apply line edits |
 | Publish | `/upload`, `/youtube-upload` | Bilibili / YouTube upload |
 | Progress | `/progress`, `/simple-progress` | Polling |
@@ -234,7 +251,10 @@ Base path: `/api/v1` (interactive docs at `/docs`)
 ## FAQ
 
 **AI does nothing?**  
-Check the API key in `.env` or Settings. Docker loads `.env` via `env_file`.
+Check the API key in `.env` or Settings. Docker loads `.env` via `env_file` (`./docker-start.sh` / `docker-start.bat` will warn if missing).
+
+**Running Docker on Windows?**  
+Install and start Docker Desktop, then run `docker-start.bat` from **CMD**. Stop / status: `docker-stop.bat`, `docker-status.bat`. Or use WSL2 with `./docker-start.sh`.
 
 **No subtitles / speech recognition?**  
 Without an SRT, **faster-whisper** generates subtitles by default (stable segment timestamps, usually lower memory than stock Whisper). You can switch in `.env`:
@@ -245,16 +265,21 @@ SPEECH_RECOGNITION_MODEL=base              # tiny/base/small/...
 # SPEECH_RECOGNITION_METHOD=whisper_local  # stock openai-whisper
 ```
 
-The default Docker image is CPU-oriented; the first run downloads models. With NVIDIA, use `./docker-start.sh gpu`. Force device with `WHISPER_DEVICE` / `FASTER_WHISPER_DEVICE` (`cpu`/`cuda`); on CPU, `FASTER_WHISPER_COMPUTE_TYPE=int8` is recommended.
+The default Docker image is CPU-oriented; the first run downloads models. With NVIDIA, use `./docker-start.sh gpu` or `docker-start.bat gpu`. Force device with `WHISPER_DEVICE` / `FASTER_WHISPER_DEVICE` (`cpu`/`cuda`); on CPU, `FASTER_WHISPER_COMPUTE_TYPE=int8` is recommended.
 
 **Docker build is slow or apt fails?**  
 First builds pull PyTorch and other large deps. If apt returns `502` or cannot reach the mirror, retry later or change `DEBIAN_MIRROR` in the Dockerfile (e.g. `mirrors.tuna.tsinghua.edu.cn`).
 
 **Backend code changes not applied in Docker?**  
-Prod images bake in the code—rebuild: `docker compose build autoclip && docker compose up -d`. For hot reload use `./docker-start.sh dev`.
+Prod images bake in the code—rebuild: `docker compose build autoclip && docker compose up -d`. For hot reload use `./docker-start.sh dev` / `docker-start.bat dev`.
 
-**YouTube download fails?**  
-yt-dlp often needs login cookies. **Docker cannot read host Chrome cookies**—on the link-import page, upload a `cookies.txt` exported from a logged-in youtube.com session (e.g. Get cookies.txt LOCALLY). It is stored as `data/cookies/youtube.txt`. Locally you can also pick a browser. Re-export when cookies expire.
+**YouTube / Douyin download fails?**  
+- **YouTube**: yt-dlp often needs login cookies. In Docker, upload a `cookies.txt` from youtube.com on the link-import page → `data/cookies/youtube.txt`.
+- **Douyin**: public videos use the share-page direct link and **usually need no cookies**. Paste `www.douyin.com/video/...` or an App share short link (not a user profile). If it still fails, upload `data/cookies/douyin.txt`.
+
+Locally you can also pick a logged-in browser (works better for YouTube). Re-export when cookies expire.
+
+If logs show `n challenge solving failed` / `Only images are available`: production image needs **Node.js ≥ 20** (Dockerfile already copies from `node:22`). Rebuild: `docker compose build autoclip && docker compose up -d`, then check `node -v` in the container.
 
 If logs show `n challenge solving failed` / `Only images are available`, the image needs **Node.js ≥ 20** (Dockerfile copies from `node:22`). Rebuild: `docker compose build autoclip && docker compose up -d`, then check `node -v` inside the container.
 

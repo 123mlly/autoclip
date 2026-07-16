@@ -645,6 +645,30 @@ async def retry_processing(
                             "download_task_id": download_task_id,
                             "source_url": source_url
                         }
+                    elif 'douyin.com' in source_url or 'iesdouyin.com' in source_url:
+                        from .douyin import process_douyin_download_task, DouyinDownloadRequest
+                        import uuid
+
+                        download_request = DouyinDownloadRequest(
+                            url=source_url,
+                            project_name=project.name,
+                            video_category=project.project_metadata.get('category', 'general')
+                        )
+                        download_task_id = str(uuid.uuid4())
+                        from .async_task_manager import task_manager
+                        await task_manager.create_safe_task(
+                            f"douyin_redownload_{download_task_id}",
+                            process_douyin_download_task,
+                            download_task_id,
+                            download_request,
+                            project_id
+                        )
+                        return {
+                            "message": "视频文件不存在，已开始重新下载抖音视频",
+                            "project_id": project_id,
+                            "download_task_id": download_task_id,
+                            "source_url": source_url
+                        }
                     else:
                         raise HTTPException(status_code=400, detail=f"不支持的视频源: {source_url}")
                 else:

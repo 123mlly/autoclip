@@ -16,7 +16,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
   const [url, setUrl] = useState('')
   const [projectName, setProjectName] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('')
-  const [selectedBrowser, setSelectedBrowser] = useState<string>('')
+  const [selectedBrowser, setSelectedBrowser] = useState<string>('chrome')
   const [categories, setCategories] = useState<VideoCategory[]>([])
   const [loadingCategories, setLoadingCategories] = useState(false)
   const [downloading, setDownloading] = useState(false)
@@ -25,7 +25,15 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
   const [videoInfo, setVideoInfo] = useState<any>(null)
   const [parsing, setParsing] = useState(false)
   const [error, setError] = useState('')
-  const [cookieStatus, setCookieStatus] = useState<{
+  const [youtubeCookieStatus, setYoutubeCookieStatus] = useState<{
+    configured: boolean
+    path: string
+    size?: number
+    updated_at?: string
+    in_docker?: boolean
+    hint?: string
+  } | null>(null)
+  const [douyinCookieStatus, setDouyinCookieStatus] = useState<{
     configured: boolean
     path: string
     size?: number
@@ -39,10 +47,14 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
 
   const refreshCookieStatus = async () => {
     try {
-      const status = await bilibiliApi.getYouTubeCookiesStatus()
-      setCookieStatus(status)
+      const [yt, dy] = await Promise.all([
+        bilibiliApi.getYouTubeCookiesStatus(),
+        bilibiliApi.getDouyinCookiesStatus(),
+      ])
+      setYoutubeCookieStatus(yt)
+      setDouyinCookieStatus(dy)
     } catch (e) {
-      console.error('Failed to load YouTube cookie status:', e)
+      console.error('Failed to load cookie status:', e)
     }
   }
 
@@ -93,17 +105,30 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
     /^https?:\/\/(www\.|m\.)?youtube\.com\/v\/[a-zA-Z0-9_-]+/
   ]
 
+  const douyinPatterns = [
+    /^https?:\/\/(www\.|m\.)?douyin\.com\/video\/\d+/,
+    /^https?:\/\/(www\.)?douyin\.com\/(?:jingxuan|discover|note)\/?\?.*modal_id=\d+/,
+    /^https?:\/\/v\.douyin\.com\/[0-9A-Za-z]+\/?/,
+    /^https?:\/\/(www\.)?iesdouyin\.com\/(?:share\/)?video\/\d+/,
+  ]
+
+  const isDouyinUserPage = (url: string) => /douyin\.com\/user\//i.test(url)
+
   const validateVideoUrl = (url: string): boolean => {
     return bilibiliPatterns.some(pattern => pattern.test(url)) ||
-           youtubePatterns.some(pattern => pattern.test(url))
+           youtubePatterns.some(pattern => pattern.test(url)) ||
+           douyinPatterns.some(pattern => pattern.test(url))
   }
   
-  const getVideoType = (url: string): 'bilibili' | 'youtube' | null => {
+  const getVideoType = (url: string): 'bilibili' | 'youtube' | 'douyin' | null => {
     if (bilibiliPatterns.some(pattern => pattern.test(url))) {
       return 'bilibili'
     }
     if (youtubePatterns.some(pattern => pattern.test(url))) {
       return 'youtube'
+    }
+    if (douyinPatterns.some(pattern => pattern.test(url))) {
+      return 'douyin'
     }
     return null
   }
@@ -116,7 +141,11 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
 
     const videoType = getVideoType(url.trim())
     if (!videoType) {
-      setError('请输入正确的B站或YouTube视频链接')
+      if (isDouyinUserPage(url.trim())) {
+        setError('这是抖音用户主页，请粘贴单条视频链接（www.douyin.com/video/... 或 App 分享短链）')
+      } else {
+        setError('请输入正确的 B站 / YouTube / 抖音 视频链接')
+      }
       return
     }
 
@@ -127,9 +156,13 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
       let response: { video_info?: any; used_browser?: string | null } | undefined
       if (videoType === 'bilibili') {
         response = await bilibiliApi.parseVideoInfo(url.trim(), selectedBrowser)
-      } else {
+      } else if (videoType === 'youtube') {
         response = await bilibiliApi.parseYouTubeVideoInfo(url.trim(), selectedBrowser || undefined)
-        // 后端自动检测到浏览器时，同步到前端选择
+        if (response?.used_browser && !selectedBrowser) {
+          setSelectedBrowser(response.used_browser)
+        }
+      } else {
+        response = await bilibiliApi.parseDouyinVideoInfo(url.trim(), selectedBrowser || undefined)
         if (response?.used_browser && !selectedBrowser) {
           setSelectedBrowser(response.used_browser)
         }
@@ -156,8 +189,15 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
         error?.message ||
         '解析失败'
       const tip = String(detail)
-      if (tip.includes('bot') || tip.includes('登录') || tip.includes('Cookie') || tip.includes('浏览器')) {
-        setError('YouTube 需要浏览器登录态。请选择已登录 YouTube 的浏览器（Chrome/Safari）后重试。')
+      if (tip.includes('用户主页')) {
+        setError(tip)
+      } else if (tip.includes('bot') || tip.includes('登录') || tip.includes('Cookie') || tip.includes('浏览器') || tip.includes('cookie') || tip.includes('Fresh cookies')) {
+        const platform = getVideoType(url.trim()) === 'douyin' ? '抖音' : 'YouTube'
+        if (platform === '抖音') {
+          setError(`解析失败：${tip}\n公开视频一般无需 Cookie；可换 App 分享短链，或上传 douyin.com 的 cookies.txt 后重试。`)
+        } else {
+          setError(`${platform} 需要登录态。请上传 cookies.txt（Docker 推荐）或选择已登录浏览器后重试。`)
+        }
       } else {
         setError(`解析失败：${tip}`)
       }
@@ -169,20 +209,23 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
 
   const formatDownloadError = (raw?: string) => {
     const tip = String(raw || '未知错误')
-    if (/bot|sign in|登录|cookie|cookies\.txt|认证/i.test(tip)) {
-      return `${tip}\n请重新上传有效的 YouTube cookies.txt 后再试。`
+    if (/bot|sign in|登录|cookie|cookies\.txt|认证|fresh cookies/i.test(tip)) {
+      const platform = getVideoType(url.trim()) === 'douyin' ? '抖音' : 'YouTube'
+      return `${tip}\n请重新上传有效的 ${platform} cookies.txt 后再试。`
     }
     return tip
   }
 
-  const startPolling = (taskId: string, videoType: 'bilibili' | 'youtube', projectId?: string) => {
+  const startPolling = (taskId: string, videoType: 'bilibili' | 'youtube' | 'douyin', projectId?: string) => {
     const interval = setInterval(async () => {
       try {
         let task
         if (videoType === 'bilibili') {
           task = await bilibiliApi.getTaskStatus(taskId)
-        } else {
+        } else if (videoType === 'youtube') {
           task = await bilibiliApi.getYouTubeTaskStatus(taskId)
+        } else {
+          task = await bilibiliApi.getDouyinTaskStatus(taskId)
         }
         setCurrentTask(task)
         
@@ -209,7 +252,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
             content: errText,
             duration: 8,
           })
-          if (videoType === 'youtube') {
+          if (videoType === 'youtube' || videoType === 'douyin') {
             refreshCookieStatus()
           }
           if (projectId && onDownloadSuccess) {
@@ -233,7 +276,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
 
     const videoType = getVideoType(url.trim())
     if (!videoType) {
-      message.error('请输入有效的B站或YouTube视频链接')
+      message.error('请输入有效的 B站 / YouTube / 抖音 视频链接')
       return
     }
 
@@ -257,11 +300,14 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
       let response: DownloadTaskCreateResponse & Partial<BilibiliDownloadTask>
       if (videoType === 'bilibili') {
         response = await bilibiliApi.createDownloadTask(requestBody)
-      } else {
+      } else if (videoType === 'youtube') {
         response = await bilibiliApi.createYouTubeDownloadTask(requestBody)
+      } else {
+        response = await bilibiliApi.createDouyinDownloadTask(requestBody)
       }
       
-      const platformName = videoType === 'bilibili' ? 'B站' : 'YouTube'
+      const platformName =
+        videoType === 'bilibili' ? 'B站' : videoType === 'youtube' ? 'YouTube' : '抖音'
 
       // 新格式：先建项目，再轮询后台下载任务（失败时要提示，尤其是 Cookie/bot）
       if (response.project_id) {
@@ -338,11 +384,11 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
     }}>
 
       {/* 输入表单 */}
-      <div style={{ marginBottom: '16px' }}>
+      <div style={{ marginBottom: videoInfo || error || parsing ? '16px' : 0 }}>
         <Space direction="vertical" style={{ width: '100%' }} size={16}>
           <div>
             <Input.TextArea
-              placeholder="请粘贴B站或YouTube视频链接，支持：• B站：https://www.bilibili.com/video/BV1xx411c7mu • YouTube：https://www.youtube.com/watch?v=xxxxx 或 Shorts：https://www.youtube.com/shorts/xxxxx"
+              placeholder="请粘贴 B站 / YouTube / 抖音 链接。例：B站 BV… · YouTube watch/shorts · 抖音 https://v.douyin.com/… 或 www.douyin.com/video/…"
               value={url}
               onChange={(e) => {
                 setUrl(e.target.value)
@@ -364,12 +410,17 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
               style={{
                 background: '#ffffff',
                 border: '1px solid #d5dde6',
-                borderRadius: '8px',
+                borderRadius: '16px',
                 color: '#14181f',
-                fontSize: '14px',
-                resize: 'none'
+                fontSize: '15px',
+                lineHeight: 1.6,
+                minHeight: 160,
+                height: 160,
+                padding: '18px 16px',
+                resize: 'none',
+                boxSizing: 'border-box',
               }}
-              rows={2}
+              rows={6}
               disabled={downloading || parsing}
             />
             {parsing && (
@@ -397,10 +448,17 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
                </div>
              )}
 
-            {getVideoType(url.trim()) === 'youtube' && (
+            {(getVideoType(url.trim()) === 'youtube' || getVideoType(url.trim()) === 'douyin') && (() => {
+              const isDouyin = getVideoType(url.trim()) === 'douyin'
+              const cookieStatus = isDouyin ? douyinCookieStatus : youtubeCookieStatus
+              const platformLabel = isDouyin ? '抖音' : 'YouTube'
+              const cookieDomain = isDouyin ? 'douyin.com' : 'youtube.com'
+              return (
               <div style={{ marginTop: '12px' }}>
                 <Text style={{ color: '#14181f', marginBottom: '8px', display: 'block', fontSize: '14px', fontWeight: 500 }}>
-                  YouTube 登录态（Docker 推荐上传 cookies.txt）
+                  {isDouyin
+                    ? '抖音 Cookie（可选，公开视频一般不需要）'
+                    : 'YouTube 登录态（Docker 推荐上传 cookies.txt）'}
                 </Text>
                 <div style={{
                   display: 'flex',
@@ -411,6 +469,8 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
                 }}>
                   {cookieStatus?.configured ? (
                     <Tag color="success">已配置 cookies.txt</Tag>
+                  ) : isDouyin ? (
+                    <Tag color="default">未配置（公开视频可跳过）</Tag>
                   ) : (
                     <Tag color="warning">未配置 cookies.txt</Tag>
                   )}
@@ -431,7 +491,11 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
                     beforeUpload={async (file) => {
                       setCookieUploading(true)
                       try {
-                        await bilibiliApi.uploadYouTubeCookies(file)
+                        if (isDouyin) {
+                          await bilibiliApi.uploadDouyinCookies(file)
+                        } else {
+                          await bilibiliApi.uploadYouTubeCookies(file)
+                        }
                         message.success('cookies.txt 已上传，可重新解析')
                         await refreshCookieStatus()
                       } catch (e: any) {
@@ -452,7 +516,11 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
                       disabled={downloading || parsing || cookieUploading}
                       onClick={async () => {
                         try {
-                          await bilibiliApi.deleteYouTubeCookies()
+                          if (isDouyin) {
+                            await bilibiliApi.deleteDouyinCookies()
+                          } else {
+                            await bilibiliApi.deleteYouTubeCookies()
+                          }
                           message.success('已删除 cookies.txt')
                           await refreshCookieStatus()
                         } catch (e: any) {
@@ -465,9 +533,11 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
                   )}
                 </Space>
                 <Text style={{ color: '#6b7585', fontSize: '12px', display: 'block', lineHeight: 1.5, marginBottom: '12px' }}>
-                  {cookieStatus?.in_docker
-                    ? 'Docker 内无法读取本机 Chrome。请用扩展「Get cookies.txt LOCALLY」从已登录的 youtube.com 导出后上传。'
-                    : '也可上传 cookies.txt；本机还可直接选择已登录的浏览器。'}
+                  {isDouyin
+                    ? '多数公开视频可直接解析。若失败，请用扩展从 douyin.com 导出 cookies.txt 上传；勿粘贴用户主页。'
+                    : cookieStatus?.in_docker
+                      ? `Docker 内无法读取本机浏览器。请用扩展「Get cookies.txt LOCALLY」从已登录的 ${cookieDomain} 导出后上传。`
+                      : '也可上传 cookies.txt；本机还可直接选择已登录的浏览器。'}
                 </Text>
                 {!cookieStatus?.in_docker && (
                   <>
@@ -475,7 +545,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
                       或选择本机浏览器 Cookie
                     </Text>
                     <Select
-                      placeholder="选择已登录 YouTube 的浏览器"
+                      placeholder={`选择已登录 ${platformLabel} 的浏览器`}
                       value={selectedBrowser || undefined}
                       onChange={(value) => setSelectedBrowser(value || '')}
                       allowClear
@@ -493,7 +563,8 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
                   </>
                 )}
               </div>
-            )}
+              )
+            })()}
           </div>
           
           {/* 显示解析成功的视频信息 */}
@@ -512,7 +583,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
                 {videoInfo.title}
               </Text>
               <Text style={{ color: '#6b7585', fontSize: '12px' }}>
-                {getVideoType(url) === 'bilibili' ? 'UP主' : '频道'}: {videoInfo.uploader || '未知'} • 时长: {videoInfo.duration ? `${Math.floor(videoInfo.duration / 60)}:${String(Math.floor(videoInfo.duration % 60)).padStart(2, '0')}` : '未知'}
+                {getVideoType(url) === 'bilibili' ? 'UP主' : getVideoType(url) === 'douyin' ? '作者' : '频道'}: {videoInfo.uploader || '未知'} • 时长: {videoInfo.duration ? `${Math.floor(videoInfo.duration / 60)}:${String(Math.floor(videoInfo.duration % 60)).padStart(2, '0')}` : '未知'}
               </Text>
             </div>
           )}
@@ -538,7 +609,7 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
                 />
               </div>
               
-              {getVideoType(url.trim()) !== 'youtube' && (
+              {getVideoType(url.trim()) === 'bilibili' && (
               <div>
                 <Text style={{ color: '#14181f', marginBottom: '12px', display: 'block', fontSize: '16px', fontWeight: 500 }}>浏览器选择（获取AI字幕需要）</Text>
                 <Select

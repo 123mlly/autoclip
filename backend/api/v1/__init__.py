@@ -20,6 +20,7 @@ from .files import router as files_router
 from .settings import router as settings_router
 from .bilibili import router as bilibili_router
 from .youtube import router as youtube_router
+from .douyin import router as douyin_router
 from .speech_recognition import router as speech_recognition_router
 from .subtitle_editor import router as subtitle_editor_router
 from .upload import router as upload_router
@@ -43,6 +44,7 @@ api_router.include_router(files_router, tags=["files"])
 api_router.include_router(settings_router, prefix="/settings", tags=["settings"])
 api_router.include_router(bilibili_router, prefix="/bilibili", tags=["bilibili"])
 api_router.include_router(youtube_router, prefix="/youtube", tags=["youtube"])
+api_router.include_router(douyin_router, prefix="/douyin", tags=["douyin"])
 api_router.include_router(speech_recognition_router, tags=["speech-recognition"])
 api_router.include_router(subtitle_editor_router, prefix="/subtitle-editor", tags=["subtitle-editor"])
 api_router.include_router(upload_router, tags=["upload"])
