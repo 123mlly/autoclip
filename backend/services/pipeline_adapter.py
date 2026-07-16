@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from ..core.database import SessionLocal
 from ..models.project import Project
 from ..models.task import Task, TaskStatus
-from ..core.shared_config import config_manager, get_prompt_files
+from ..core.shared_config import config_manager, get_prompt_files, resolve_video_category
 from ..pipeline.step1_outline import run_step1_outline
 from ..pipeline.step2_timeline import run_step2_timeline
 from ..pipeline.step3_scoring import run_step3_scoring
@@ -200,9 +200,7 @@ class PipelineAdapter:
             
             # 获取项目信息以确定视频分类
             project = self.db.query(Project).filter(Project.id == self.project_id).first()
-            video_category = "default"
-            if project and project.project_metadata:
-                video_category = project.project_metadata.get("video_category", "default")
+            video_category = resolve_video_category(project)
             
             # 获取对应的提示词文件
             prompt_files = get_prompt_files(video_category)
@@ -231,9 +229,7 @@ class PipelineAdapter:
             
             # 获取项目信息以确定视频分类
             project = self.db.query(Project).filter(Project.id == self.project_id).first()
-            video_category = "default"
-            if project and project.project_metadata:
-                video_category = project.project_metadata.get("video_category", "default")
+            video_category = resolve_video_category(project)
             
             # 获取对应的提示词文件
             prompt_files = get_prompt_files(video_category)
@@ -262,9 +258,7 @@ class PipelineAdapter:
             
             # 获取项目信息以确定视频分类
             project = self.db.query(Project).filter(Project.id == self.project_id).first()
-            video_category = "default"
-            if project and project.project_metadata:
-                video_category = project.project_metadata.get("video_category", "default")
+            video_category = resolve_video_category(project)
             
             # 获取对应的提示词文件
             prompt_files = get_prompt_files(video_category)
@@ -293,9 +287,7 @@ class PipelineAdapter:
             
             # 获取项目信息以确定视频分类
             project = self.db.query(Project).filter(Project.id == self.project_id).first()
-            video_category = "default"
-            if project and project.project_metadata:
-                video_category = project.project_metadata.get("video_category", "default")
+            video_category = resolve_video_category(project)
             
             # 获取对应的提示词文件
             prompt_files = get_prompt_files(video_category)
@@ -324,9 +316,7 @@ class PipelineAdapter:
             
             # 获取项目信息以确定视频分类
             project = self.db.query(Project).filter(Project.id == self.project_id).first()
-            video_category = "default"
-            if project and project.project_metadata:
-                video_category = project.project_metadata.get("video_category", "default")
+            video_category = resolve_video_category(project)
             
             # 获取对应的提示词文件
             prompt_files = get_prompt_files(video_category)

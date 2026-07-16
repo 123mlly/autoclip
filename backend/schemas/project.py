@@ -28,6 +28,7 @@ class ProjectType(str, Enum):
     SPEECH = "speech"
     CONTENT_REVIEW = "content_review"
     ENTERTAINMENT = "entertainment"
+    DOUYIN = "douyin"
 
 
 class ProjectCreate(BaseSchema):

@@ -37,13 +37,25 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate, ProjectR
         project_dict = project_data.model_dump()
         
         # Map Pydantic fields to ORM fields
+        project_type_raw = project_dict.get("project_type", "default")
+        project_type_val = (
+            project_type_raw.value
+            if hasattr(project_type_raw, "value")
+            else str(project_type_raw or "default")
+        )
+        settings = dict(project_dict.get("settings") or {})
+        settings.setdefault("video_category", project_type_val)
+
         orm_data = {
             "name": project_dict["name"],
             "description": project_dict.get("description"),
-            "project_type": project_dict.get("project_type", "default").value if hasattr(project_dict.get("project_type", "default"), 'value') else project_dict.get("project_type", "default"),  # Map project_type to project_type
+            "project_type": project_type_val,
             "video_path": project_dict.get("source_file"),  # Map source_file to video_path
-            "processing_config": project_dict.get("settings", {}),  # Map settings to processing_config
-            "project_metadata": {"source_url": project_dict.get("source_url")}  # Map source_url to metadata
+            "processing_config": settings,
+            "project_metadata": {
+                "source_url": project_dict.get("source_url"),
+                "video_category": project_type_val,
+            },
         }
         
         return self.create(**orm_data)

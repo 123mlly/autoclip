@@ -82,6 +82,13 @@ const BilibiliDownload: React.FC<BilibiliDownloadProps> = ({ onDownloadSuccess }
     refreshCookieStatus()
   }, [])
 
+  // 抖音链接自动选中「抖音短视频」分类
+  useEffect(() => {
+    if (getVideoType(url.trim()) === 'douyin') {
+      setSelectedCategory('douyin')
+    }
+  }, [url])
+
   // 清理轮询
   useEffect(() => {
     return () => {

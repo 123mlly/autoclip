@@ -20,6 +20,7 @@ class VideoCategory(str, Enum):
     SPEECH = "speech"
     CONTENT_REVIEW = "content_review"
     ENTERTAINMENT = "entertainment"
+    DOUYIN = "douyin"
 
 # 视频分类配置
 VIDEO_CATEGORIES_CONFIG = {
@@ -70,7 +71,13 @@ VIDEO_CATEGORIES_CONFIG = {
         "description": "娱乐节目、综艺、表演等轻松内容",
         "icon": "🎪",
         "color": "#fa8c16"
-    }
+    },
+    VideoCategory.DOUYIN: {
+        "name": "抖音短视频",
+        "description": "抖音竖屏短视频，15秒～5分钟，强调钩子、节奏与完播",
+        "icon": "📱",
+        "color": "#fe2c55"
+    },
 }
 
 # 项目根目录
@@ -375,6 +382,28 @@ class ConfigManager:
         }
 
 # 根据视频分类获取prompt文件路径
+def resolve_video_category(project) -> str:
+    """从 project_type / metadata / processing_config 解析视频分类。"""
+    if project is None:
+        return VideoCategory.DEFAULT.value
+
+    meta = project.project_metadata or {}
+    if meta.get("video_category"):
+        return str(meta["video_category"])
+
+    cfg = project.processing_config or {}
+    if cfg.get("video_category"):
+        return str(cfg["video_category"])
+
+    project_type = getattr(project, "project_type", None)
+    if project_type is not None:
+        val = project_type.value if hasattr(project_type, "value") else str(project_type)
+        if val:
+            return val
+
+    return VideoCategory.DEFAULT.value
+
+
 def get_prompt_files(video_category: str = VideoCategory.DEFAULT) -> Dict[str, Path]:
     """
     根据视频分类获取对应的prompt文件路径

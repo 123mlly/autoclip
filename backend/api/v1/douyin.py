@@ -203,7 +203,7 @@ def extract_douyin_info(url: str, browser: Optional[str] = None) -> tuple[dict, 
 class DouyinDownloadRequest(BaseModel):
     url: str
     project_name: str
-    video_category: Optional[str] = "default"
+    video_category: Optional[str] = "douyin"
     browser: Optional[str] = None
 
 
@@ -373,11 +373,11 @@ async def create_douyin_download_task(request: DouyinDownloadRequest):
                 except Exception as e:
                     logger.warning(f"处理抖音缩略图失败: {e}")
 
-            category = request.video_category or "default"
+            category = request.video_category or "douyin"
             try:
                 project_type = ProjectType(category)
             except Exception:
-                project_type = ProjectType.KNOWLEDGE
+                project_type = ProjectType.DOUYIN
 
             project_data = ProjectCreate(
                 name=request.project_name,
@@ -389,6 +389,7 @@ async def create_douyin_download_task(request: DouyinDownloadRequest):
                 settings={
                     "download_status": "downloading",
                     "download_progress": 0.0,
+                    "video_category": project_type.value,
                     "douyin_info": {
                         "url": request.url,
                         "browser": request.browser,

@@ -137,6 +137,13 @@ async def get_video_categories():
                 "color": "#13c2c2"
             },
             {
+                "value": "douyin",
+                "name": "抖音短视频",
+                "description": "竖屏短视频，强调钩子、节奏与完播（15秒～5分钟）",
+                "icon": "📱",
+                "color": "#fe2c55"
+            },
+            {
                 "value": "speech",
                 "name": "演讲",
                 "description": "公开演讲、讲座等演讲内容",

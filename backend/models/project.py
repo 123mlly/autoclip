@@ -26,6 +26,7 @@ class ProjectType(str, enum.Enum):
     SPEECH = "speech"            # 演讲脱口秀
     CONTENT_REVIEW = "content_review"  # 内容解说
     ENTERTAINMENT = "entertainment"    # 娱乐内容
+    DOUYIN = "douyin"                  # 抖音短视频
 
 class Project(BaseModel):
     """项目模型"""
