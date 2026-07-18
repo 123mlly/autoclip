@@ -159,6 +159,44 @@ class ProjectRepository(BaseRepository[Project]):
         """
         return self.find_by(status=ProjectStatus.FAILED)
     
+    def get_paginated(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> tuple[List[Project], int]:
+        """分页获取项目，按创建时间倒序（最新在前）。"""
+        query = self.db.query(self.model)
+
+        if filters:
+            if filters.get("search"):
+                keyword = filters["search"]
+                query = query.filter(
+                    self.model.name.contains(keyword)
+                    | self.model.description.contains(keyword)
+                )
+
+            if filters.get("status") is not None:
+                status = filters["status"]
+                if isinstance(status, str):
+                    status = ProjectStatus(status)
+                query = query.filter(self.model.status == status)
+
+            if filters.get("project_type") is not None:
+                project_type = filters["project_type"]
+                if isinstance(project_type, str):
+                    project_type = ProjectType(project_type)
+                query = query.filter(self.model.project_type == project_type)
+
+        total = query.count()
+        items = (
+            query.order_by(desc(self.model.created_at))
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+        return items, total
+
     def search_projects(self, keyword: str) -> List[Project]:
         """
         搜索项目

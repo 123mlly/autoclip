@@ -1,0 +1,13 @@
+.project-grid {
+  display: grid;
+  gap: 16px;
+  padding: 6px 0;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 240px));
+  justify-content: start;
+}
+
+.project-grid-item {
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}

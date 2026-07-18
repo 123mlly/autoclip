@@ -121,6 +121,11 @@ class DashScopeProvider(LLMProvider):
             or name in {"qwen-long", "qwq-plus", "qwq-32b"}
         )
 
+    def _model_requires_thinking(self) -> bool:
+        """部分 Qwen3.7 Max / QwQ 模型强制要求 enable_thinking=True"""
+        name = (self.model_name or "").lower()
+        return "qwen3.7-max" in name or name.startswith("qwq")
+
     def _get_openai_client(self):
         if self._openai_client is None:
             try:
@@ -145,8 +150,10 @@ class DashScopeProvider(LLMProvider):
         full_input = self._build_full_input(prompt, input_data)
         client = self._get_openai_client()
 
-        # 流水线依赖 JSON，默认关闭思考链，避免输出被 reasoning 干扰
-        enable_thinking = kwargs.pop("enable_thinking", False)
+        # qwen3.7-max / QwQ 等模型 API 强制 enable_thinking=True；其余默认关闭以免干扰 JSON
+        enable_thinking = kwargs.pop("enable_thinking", None)
+        if enable_thinking is None:
+            enable_thinking = self._model_requires_thinking()
         create_kwargs = {
             "model": self.model_name,
             "messages": [{"role": "user", "content": full_input}],
@@ -254,6 +261,13 @@ class DashScopeProvider(LLMProvider):
                 provider=ProviderType.DASHSCOPE,
                 max_tokens=131072,
                 description="Qwen3.7 Max，能力更强",
+            ),
+            ModelInfo(
+                name="qwen3.7-max-2026-05-17",
+                display_name="通义千问3.7 Max (2026-05-17)",
+                provider=ProviderType.DASHSCOPE,
+                max_tokens=131072,
+                description="Qwen3.7 Max 快照版",
             ),
             ModelInfo(
                 name="qwen3.6-flash",

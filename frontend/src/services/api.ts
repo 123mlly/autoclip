@@ -127,6 +127,39 @@ export interface DownloadTaskCreateResponse {
   progress?: number
 }
 
+export interface ProjectPagination {
+  page: number
+  size: number
+  total: number
+  pages: number
+  has_next: boolean
+  has_prev: boolean
+}
+
+export interface ProjectListResult {
+  items: Project[]
+  pagination: ProjectPagination
+}
+
+export interface GetProjectsParams {
+  page?: number
+  size?: number
+  status?: string
+}
+
+function normalizeProject(raw: Record<string, unknown>): Project {
+  const settings = (raw.settings as Project['settings']) || {}
+  const processingConfig =
+    (raw.processing_config as Project['processing_config']) ||
+    (raw.settings as Project['processing_config']) ||
+    {}
+  return {
+    ...(raw as unknown as Project),
+    settings,
+    processing_config: processingConfig,
+  }
+}
+
 // 设置相关API
 export const settingsApi = {
   // 获取系统配置
@@ -166,11 +199,27 @@ export const projectApi = {
     return api.get('/video-categories')
   },
 
-  // 获取所有项目
-  getProjects: async (): Promise<Project[]> => {
-    const response = await api.get('/projects/')
-    // 处理分页响应结构，返回items数组
-    return (response as any).items || response || []
+  // 获取项目列表（分页）
+  getProjects: async (params?: GetProjectsParams): Promise<ProjectListResult> => {
+    const query: Record<string, number | string> = {
+      page: params?.page ?? 1,
+      size: params?.size ?? 20,
+    }
+    if (params?.status && params.status !== 'all') {
+      query.status = params.status
+    }
+    const response = await api.get('/projects/', { params: query })
+    const raw = response as { items?: Record<string, unknown>[]; pagination?: ProjectPagination }
+    const items = (raw.items || []).map(normalizeProject)
+    const pagination = raw.pagination || {
+      page: query.page as number,
+      size: query.size as number,
+      total: items.length,
+      pages: 1,
+      has_next: false,
+      has_prev: false,
+    }
+    return { items, pagination }
   },
 
   // 获取单个项目

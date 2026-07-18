@@ -407,7 +407,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
       hoverable
       className="project-card"
       style={{ 
-        width: 200, 
+        width: '100%', 
         height: 240,
         borderRadius: '4px',
         overflow: 'hidden',
@@ -721,7 +721,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onDelete, onRetry, o
               justifyContent: 'center',
               marginBottom: '12px'
             }}>
-              <div style={{ width: '100%', maxWidth: '200px' }}>
+              <div style={{ width: '100%' }}>
                 <UnifiedStatusBar
                   projectId={project.id}
                   status={normalizedStatus}

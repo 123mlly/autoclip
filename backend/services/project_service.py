@@ -114,6 +114,33 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate, ProjectR
             total_tasks=total_tasks
         )
     
+    def get_paginated(
+        self,
+        pagination: PaginationParams,
+        filters: Optional[Dict[str, Any]] = None
+    ) -> tuple[List[Project], PaginationResponse]:
+        """Get paginated projects ordered by newest first."""
+        skip = (pagination.page - 1) * pagination.size
+        limit = pagination.size
+
+        items, total = self.repository.get_paginated(
+            skip=skip, limit=limit, filters=filters
+        )
+
+        pages = (total + pagination.size - 1) // pagination.size if pagination.size else 0
+        has_next = pagination.page < pages
+        has_prev = pagination.page > 1
+
+        pagination_response = PaginationResponse(
+            page=pagination.page,
+            size=pagination.size,
+            total=total,
+            pages=pages,
+            has_next=has_next,
+            has_prev=has_prev,
+        )
+        return items, pagination_response
+
     def get_projects_paginated(
         self, 
         pagination: PaginationParams,

@@ -21,6 +21,26 @@ const SettingsPage: React.FC = () => {
   const [availableModels, setAvailableModels] = useState<any>({})
   const [currentProvider, setCurrentProvider] = useState<any>({})
   const [selectedProvider, setSelectedProvider] = useState('dashscope')
+  const [savedModelName, setSavedModelName] = useState('')
+
+  const providerModelOptions = React.useMemo(() => {
+    const list = availableModels[selectedProvider] || []
+    if (
+      savedModelName &&
+      !list.some((model: { name: string }) => model.name === savedModelName)
+    ) {
+      return [
+        {
+          name: savedModelName,
+          display_name: '自定义模型',
+          max_tokens: 131072,
+          description: '已保存的模型 ID',
+        },
+        ...list,
+      ]
+    }
+    return list
+  }, [availableModels, selectedProvider, savedModelName])
 
   // 提供商配置
   const providerConfig = {
@@ -85,9 +105,13 @@ const SettingsPage: React.FC = () => {
       setAvailableModels(models)
       setCurrentProvider(provider)
       setSelectedProvider(settings.llm_provider || 'dashscope')
+      setSavedModelName(settings.model_name || '')
       
-      // 设置表单初始值
-      form.setFieldsValue(settings)
+      // 设置表单初始值（Select tags 模式用数组）
+      form.setFieldsValue({
+        ...settings,
+        model_name: settings.model_name ? [settings.model_name] : [],
+      })
       youtubeForm.setFieldsValue({
         youtube_client_id: settings.youtube_client_id || '',
         youtube_client_secret: settings.youtube_client_secret || '',
@@ -106,7 +130,11 @@ const SettingsPage: React.FC = () => {
   const handleSave = async (values: any) => {
     try {
       setLoading(true)
-      await settingsApi.updateSettings(values)
+      const payload = { ...values }
+      if (Array.isArray(payload.model_name)) {
+        payload.model_name = payload.model_name[0]?.trim() || ''
+      }
+      await settingsApi.updateSettings(payload)
       message.success('配置保存成功！')
       await loadData() // 重新加载数据
     } catch (error: any) {
@@ -119,7 +147,8 @@ const SettingsPage: React.FC = () => {
   // 测试API密钥
   const handleTestApiKey = async () => {
     const apiKey = form.getFieldValue(providerConfig[selectedProvider as keyof typeof providerConfig].apiKeyField)
-    const modelName = form.getFieldValue('model_name')
+    const rawModel = form.getFieldValue('model_name')
+    const modelName = Array.isArray(rawModel) ? rawModel[0] : rawModel
     
     if (!apiKey) {
       message.error('请先输入API密钥')
@@ -255,16 +284,19 @@ const SettingsPage: React.FC = () => {
                   name="model_name"
                   className="form-item"
                   rules={[{ required: true, message: '请选择或输入模型' }]}
-                  extra="支持 qwen3.7-plus 等新模型；也可直接输入模型 ID"
+                  extra="可从列表选择；也可输入 DashScope 支持的任意模型 ID 后回车"
                 >
                   <Select
                     className="settings-input"
-                    placeholder="请选择或输入模型，如 qwen3.7-plus"
+                    placeholder="请选择或输入模型 ID"
                     showSearch
                     allowClear
+                    mode="tags"
+                    maxCount={1}
                     optionFilterProp="label"
+                    tokenSeparators={[',']}
                   >
-                    {availableModels[selectedProvider]?.map((model: any) => (
+                    {providerModelOptions.map((model: any) => (
                       <Select.Option
                         key={model.name}
                         value={model.name}
@@ -299,15 +331,6 @@ const SettingsPage: React.FC = () => {
                 <Title level={4} className="section-title">模型配置</Title>
                 
                 <Row gutter={16}>
-                  <Col span={12}>
-                    <Form.Item
-                      label="模型名称"
-                      name="model_name"
-                      className="form-item"
-                    >
-                      <Input placeholder="qwen3.7-plus" className="settings-input" />
-                    </Form.Item>
-                  </Col>
                   <Col span={12}>
                     <Form.Item
                       label="文本分块大小"
