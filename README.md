@@ -1,6 +1,6 @@
 # AutoClip
 
-AI 长视频智能切片系统：从 **B站 / YouTube / 抖音链接** 或 **本地视频** 导入内容，基于字幕与大模型自动切片、生成主题合集，支持按台词精剪，并可投稿到 B站与 YouTube。
+AI 长视频智能切片系统：从 **B站 / YouTube / 抖音链接** 或 **本地视频** 导入内容，基于字幕与大模型自动切片、生成主题合集；支持 **AI 混剪**（分镜表 + 旁白文案 + 成片导出）、项目内 **手动混剪**、按台词精剪，并可投稿到 B站与 YouTube。
 
 [![Python](https://img.shields.io/badge/Python-3.10+-green?style=flat&logo=python)](https://python.org)
 [![React](https://img.shields.io/badge/React-18-blue?style=flat&logo=react)](https://reactjs.org)
@@ -20,6 +20,8 @@ AI 长视频智能切片系统：从 **B站 / YouTube / 抖音链接** 或 **本
 | 文件导入 | 上传本地视频，可选附带 SRT；无字幕时用本地 ASR（默认 **faster-whisper**）自动识别 |
 | AI 流水线 | 大纲 → 时间点 → 评分 → 标题 → 主题聚类 → FFmpeg 切片 |
 | 切片与合集 | 预览 / 下载切片，AI 推荐合集，手动创建与拖拽排序 |
+| **AI 混剪** | 上传原片 → AI 生成分镜表（画面 + 旁白 + 时间轴）→ 编辑旁白 → 导出成片（带 / 不带旁白字幕）→ 投稿 |
+| 项目混剪 | 在项目详情页将多个切片拖拽编排，支持转场、BGM、9:16 / 16:9 输出 |
 | 按台词剪辑 | 基于字幕文稿删句并重新导出切片 |
 | 投稿 | 上传到 B站（Cookie / 密码 / 扫码）或 YouTube（Google OAuth） |
 | 多模型 | 设置页支持通义千问、OpenAI、Gemini、硅基流动等 |
@@ -206,11 +208,22 @@ cd frontend && npm install && cd ..
 
 ## 使用流程
 
+### 长视频切片（默认）
+
 1. 打开首页，选择 **链接导入** 或 **文件导入**，并选择视频分类  
 2. 导入后自动进入后台处理（Celery）；在项目页查看进度  
 3. 完成后浏览 **视频片段** 与 **AI 推荐合集**，可编辑标题、拖拽排序  
 4. 需要时使用 **按台词剪辑** 精修切片  
 5. 通过 **投稿** 上传到 B站或 YouTube（需先在设置中绑定账号）  
+
+### AI 混剪
+
+1. 首页进入 **AI 混剪**（或访问 `/storyboard`）  
+2. 上传 MP4（建议同时导入 SRT；无字幕时会自动 ASR）  
+3. 配置推理模型、旁白文风、成片占比、分镜数量等，点击 **生成分镜表**  
+4. 在分镜表中编辑旁白，支持批量翻译 / 替换、从原片字幕填充  
+5. **导出视频**：纯画面，或 **带旁白字幕**（白字黑描边，无背景条，Pillow + FFmpeg 叠加，不依赖 libass）  
+6. 导出完成后可 **投稿** 到 B站 / YouTube（与切片投稿共用账号配置）  
 
 系统设置页可配置 AI 模型、B站账号与 YouTube OAuth。
 
@@ -251,7 +264,9 @@ autoclip/
 | 切片 / 合集 | `/clips`、`/collections` | CRUD、标题生成、排序 |
 | 导入 | `/bilibili`、`/youtube`、`/douyin` | 解析与下载 |
 | 字幕编辑 | `/subtitle-editor` | 按台词预览与应用 |
-| 投稿 | `/upload`、`/youtube-upload` | B站 / YouTube 上传 |
+| **AI 混剪** | `/storyboards` | 分镜生成、编辑、渲染、投稿准备 |
+| **项目混剪** | `/montages` | 时间轴编排、BGM、渲染 |
+| 投稿 | `/upload`、`/youtube-upload` | B站 / YouTube 上传（含 AI 混剪成片） |
 | 进度 | `/progress`、`/simple-progress` | 轮询进度 |
 | 设置 | `/settings` | LLM 等配置 |
 
@@ -280,7 +295,10 @@ Docker 默认镜像为 CPU；首次运行会下载模型。有 NVIDIA 时用 `./
 首次构建需下载 PyTorch 等大依赖，属正常。若 `apt` 报 `502` / 连不上镜像源，稍后重试，或更换 Dockerfile 中的 `DEBIAN_MIRROR`（如清华 `mirrors.tuna.tsinghua.edu.cn`）。
 
 **修改后端代码后 Docker 不生效？**  
-生产镜像把代码打进镜像，需重新构建：`docker compose build autoclip && docker compose up -d`。开发热更新请用 `./docker-start.sh dev` / `docker-start.bat dev`。
+生产镜像把代码打进镜像，需重新构建：`docker compose up -d --build`。开发热更新请用 `./docker-start.sh dev` / `docker-start.bat dev`。修改 Celery 任务（切片流水线、AI 混剪渲染、投稿）后请确认 `celery-worker` 已重启。
+
+**AI 混剪旁白导出？**  
+当前为 **烧录字幕**（非 TTS 配音）。旁白通过 Pillow 渲染为透明 PNG，再用 FFmpeg `overlay` 叠加，兼容无 libass / drawtext 的 FFmpeg 构建（如 Homebrew 默认包）。导出后可在分镜表工具栏 **投稿**。
 
 **YouTube / 抖音下载失败？**  
 - **YouTube**：yt-dlp 常需登录 Cookie。Docker 内请在链接导入页上传从 youtube.com 导出的 `cookies.txt`（扩展如 Get cookies.txt LOCALLY），保存为 `data/cookies/youtube.txt`。

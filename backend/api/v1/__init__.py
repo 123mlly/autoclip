@@ -13,6 +13,8 @@ from .health import router as health_router
 from .projects import router as projects_router
 from .clips import router as clips_router
 from .collections import router as collections_router
+from .montages import router as montages_router
+from .storyboards import router as storyboards_router
 from .tasks import router as tasks_router
 from .processing import router as processing_router
 # from .websocket import router as websocket_router  # 已禁用WebSocket系统
@@ -37,6 +39,8 @@ api_router.include_router(health_router, prefix="/health", tags=["health"])
 api_router.include_router(projects_router, prefix="/projects", tags=["projects"])
 api_router.include_router(clips_router, prefix="/clips", tags=["clips"])
 api_router.include_router(collections_router, prefix="/collections", tags=["collections"])
+api_router.include_router(montages_router, prefix="/montages", tags=["montages"])
+api_router.include_router(storyboards_router, prefix="/storyboards", tags=["storyboards"])
 api_router.include_router(tasks_router, prefix="/tasks", tags=["tasks"])
 api_router.include_router(processing_router, tags=["processing"])
 # api_router.include_router(websocket_router, tags=["websocket"])  # 已禁用WebSocket系统

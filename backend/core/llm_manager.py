@@ -165,6 +165,40 @@ class LLMManager:
                 import time
                 time.sleep(2 ** attempt)  # 指数退避
         return ""
+
+    def call_with_model(
+        self,
+        model_name: Optional[str],
+        prompt: str,
+        input_data: Any = None,
+        max_retries: int = 3,
+        **kwargs,
+    ) -> str:
+        """使用指定模型调用 LLM；未传或与当前模型相同时走默认配置。"""
+        current = self.settings.get("model_name")
+        if not model_name or model_name == current:
+            return self.call_with_retry(prompt, input_data, max_retries, **kwargs)
+
+        provider_type = ProviderType(self.settings.get("llm_provider", "dashscope"))
+        api_key = self._get_api_key_for_provider(provider_type)
+        if not api_key:
+            raise ValueError("未配置LLM提供商，请在设置页面配置API密钥")
+
+        provider = LLMProviderFactory.create_provider(provider_type, api_key, model_name)
+        for attempt in range(max_retries):
+            try:
+                response = provider.call(prompt, input_data, **kwargs)
+                return response.content
+            except ValueError:
+                raise
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.error("指定模型 %s 调用在 %s 次重试后失败", model_name, max_retries)
+                    raise
+                logger.warning("模型 %s 第 %s 次调用失败，准备重试: %s", model_name, attempt + 1, e)
+                import time
+                time.sleep(2 ** attempt)
+        return ""
     
     def test_provider_connection(self, provider_type: ProviderType, api_key: str, model_name: str) -> bool:
         """测试提供商连接"""

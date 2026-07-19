@@ -131,6 +131,16 @@ class Project(BaseModel):
         back_populates="project",
         cascade="all, delete-orphan"
     )
+    montages = relationship(
+        "Montage",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+    storyboards = relationship(
+        "Storyboard",
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
     tasks = relationship(
         "Task", 
         back_populates="project",

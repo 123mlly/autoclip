@@ -44,6 +44,24 @@ def upload_clip_task(self, record_id: str, clip_id: str):
         clip = db.query(Clip).filter(Clip.id == clip_id).first()
         if not clip:
             raise ValueError(f"切片记录不存在: {clip_id}")
+
+        if clip.video_path:
+            video_path = Path(clip.video_path)
+            if video_path.is_file():
+                file_size = video_path.stat().st_size
+                logger.info(f"使用切片 video_path: {video_path} ({file_size} bytes)")
+                if file_size == 0:
+                    raise ValueError("视频文件为空")
+                success = upload_service.upload_clip_sync(record_id_int, str(video_path))
+                if success:
+                    logger.info(f"切片上传成功: {clip_id}")
+                    upload_service.update_upload_status(record_id_int, "completed")
+                else:
+                    logger.error(f"切片上传失败: {clip_id}")
+                    record = upload_service.get_upload_record_by_id(record_id_int)
+                    err = (record.error_message if record else None) or "上传失败"
+                    upload_service.update_upload_status(record_id_int, "failed", err)
+                return
         
         clip_title = clip.title or clip.generated_title or ""
         logger.info(f"切片标题: {clip_title}")
@@ -138,6 +156,11 @@ def _resolve_clip_video_path(db, project_id: str, clip_id: str):
     clip = db.query(Clip).filter(Clip.id == clip_id).first()
     if not clip:
         raise ValueError(f"切片记录不存在: {clip_id}")
+
+    if clip.video_path:
+        video_path = Path(clip.video_path)
+        if video_path.is_file():
+            return video_path
 
     clip_title = clip.title or clip.generated_title or ""
     possible_paths = [

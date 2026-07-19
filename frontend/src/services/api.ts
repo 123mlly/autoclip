@@ -145,6 +145,137 @@ export interface GetProjectsParams {
   page?: number
   size?: number
   status?: string
+  exclude_storyboard?: boolean
+}
+
+export interface MontageSegment {
+  id: string
+  clip_id: string
+  project_id?: string
+  in_offset: number
+  out_offset?: number | null
+  transition?: 'none' | 'fade' | string
+  transition_duration?: number
+}
+
+export interface MontageAudioSettings {
+  bgm_path?: string | null
+  bgm_filename?: string | null
+  bgm_volume?: number
+  keep_original?: boolean
+}
+
+export interface MontageOutputSettings {
+  aspect_ratio?: '9:16' | '16:9' | string
+}
+
+export interface MontageTimeline {
+  segments: MontageSegment[]
+  audio?: MontageAudioSettings
+  output?: MontageOutputSettings
+}
+
+export interface MontageClipItem {
+  id: string
+  title: string
+  duration: number
+  score?: number
+  project_id: string
+  project_name: string
+}
+
+export interface MontageClipSourceGroup {
+  project_id: string
+  project_name: string
+  clips: MontageClipItem[]
+}
+
+export interface MontageClipSources {
+  current_project: MontageClipSourceGroup
+  other_projects: MontageClipSourceGroup[]
+}
+
+export interface Montage {
+  id: string
+  project_id: string
+  name: string
+  description?: string
+  status: 'draft' | 'rendering' | 'completed' | 'failed'
+  timeline: MontageTimeline
+  total_duration?: number
+  export_path?: string
+  thumbnail_path?: string
+  error_message?: string
+  created_at?: string
+  updated_at?: string
+  segment_count?: number
+}
+
+export interface StoryboardShot {
+  id: string
+  index: number
+  start_time: number
+  end_time: number
+  narration: string
+  subtitle_ref?: string | null
+  thumbnail_path?: string | null
+}
+
+export interface StoryboardConfig {
+  duration_ratio?: number
+  scene_align?: boolean
+  subtitle_align?: boolean
+  golden_opening?: boolean
+  aspect_ratio?: '9:16' | '16:9' | string
+  custom_prompt?: string
+  user_custom_prompt?: string
+  max_shots?: number
+  narration_max_chars?: number
+  model_name?: string
+  voice_style?: string
+  source_duration?: number
+  export_clip_id?: string
+}
+
+export interface Storyboard {
+  id: string
+  project_id: string
+  name: string
+  description?: string
+  status: 'draft' | 'generating' | 'ready' | 'rendering' | 'completed' | 'failed'
+  config: StoryboardConfig
+  shots: StoryboardShot[]
+  source_video_path?: string
+  subtitle_path?: string
+  total_duration?: number
+  export_path?: string
+  thumbnail_path?: string
+  error_message?: string
+  created_at?: string
+  updated_at?: string
+  shot_count?: number
+}
+
+export interface StoryboardProjectSummary {
+  project_id: string
+  name: string
+  created_at: string
+  updated_at: string
+  thumbnail?: string | null
+  storyboard_id?: string | null
+  storyboard_name?: string | null
+  storyboard_status?: Storyboard['status'] | null
+  shot_count: number
+  total_duration?: number | null
+}
+
+export interface StoryboardVideoSource {
+  id: string
+  filename: string
+  original_name: string
+  size: number
+  order: number
+  uploaded_at: string
 }
 
 function normalizeProject(raw: Record<string, unknown>): Project {
@@ -201,12 +332,15 @@ export const projectApi = {
 
   // 获取项目列表（分页）
   getProjects: async (params?: GetProjectsParams): Promise<ProjectListResult> => {
-    const query: Record<string, number | string> = {
+    const query: Record<string, number | string | boolean> = {
       page: params?.page ?? 1,
       size: params?.size ?? 20,
     }
     if (params?.status && params.status !== 'all') {
       query.status = params.status
+    }
+    if (params?.exclude_storyboard) {
+      query.exclude_storyboard = true
     }
     const response = await api.get('/projects/', { params: query })
     const raw = response as { items?: Record<string, unknown>[]; pagination?: ProjectPagination }
@@ -514,6 +648,251 @@ export const projectApi = {
   getCollectionVideoUrl: (projectId: string, collectionId: string): string => {
     // 使用files路由获取合集视频
     return apiUrl(`/files/projects/${projectId}/collections/${collectionId}`)
+  },
+
+  // 获取混剪视频 URL
+  getMontageVideoUrl: (projectId: string, montageId: string): string => {
+    return apiUrl(`/files/projects/${projectId}/montages/${montageId}`)
+  },
+
+  // --- 混剪 ---
+  getMontages: async (projectId: string): Promise<Montage[]> => {
+    const response = await api.get('/montages/', { params: { project_id: projectId, size: 100 } })
+    return (response as { items?: Montage[] }).items || []
+  },
+
+  createMontage: async (projectId: string, name: string, description?: string): Promise<Montage> => {
+    return api.post('/montages/', {
+      project_id: projectId,
+      name,
+      description,
+    })
+  },
+
+  generateMontageWithAI: async (payload: {
+    project_id: string
+    prompt: string
+    aspect_ratio?: '9:16' | '16:9'
+    target_duration?: number
+    max_segments?: number
+    include_other_projects?: boolean
+    auto_render?: boolean
+  }): Promise<Montage> => {
+    return api.post('/montages/ai-generate', payload)
+  },
+
+  updateMontage: async (
+    montageId: string,
+    updates: { name?: string; description?: string; timeline?: MontageTimeline }
+  ): Promise<Montage> => {
+    return api.put(`/montages/${montageId}`, updates)
+  },
+
+  deleteMontage: async (montageId: string): Promise<void> => {
+    await api.delete(`/montages/${montageId}`)
+  },
+
+  getMontage: async (montageId: string): Promise<Montage> => {
+    return api.get(`/montages/${montageId}`)
+  },
+
+  renderMontage: async (montageId: string, sync = false): Promise<Montage> => {
+    return api.post(`/montages/${montageId}/render`, null, {
+      params: sync ? { sync: true } : undefined,
+    })
+  },
+
+  getMontageClipSources: async (projectId: string): Promise<MontageClipSources> => {
+    return api.get('/montages/clip-sources', { params: { project_id: projectId } })
+  },
+
+  uploadMontageBgm: async (montageId: string, file: File): Promise<Montage> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post(`/montages/${montageId}/bgm`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  downloadMontage: async (projectId: string, montageId: string): Promise<Blob> => {
+    return api.get(`/files/projects/${projectId}/montages/${montageId}`, {
+      responseType: 'blob',
+    })
+  },
+
+  // --- 解说分镜 ---
+  getStoryboardProjects: async (params?: {
+    page?: number
+    size?: number
+  }): Promise<{ items: StoryboardProjectSummary[]; pagination: ProjectPagination }> => {
+    const response = await api.get('/storyboards/projects', {
+      params: { page: params?.page ?? 1, size: params?.size ?? 20 },
+    })
+    const raw = response as { items?: StoryboardProjectSummary[]; pagination?: ProjectPagination }
+    return {
+      items: raw.items || [],
+      pagination: raw.pagination || {
+        page: params?.page ?? 1,
+        size: params?.size ?? 20,
+        total: raw.items?.length || 0,
+        pages: 1,
+        has_next: false,
+        has_prev: false,
+      },
+    }
+  },
+
+  getStoryboards: async (projectId: string): Promise<Storyboard[]> => {
+    const response = await api.get('/storyboards/', { params: { project_id: projectId, size: 100 } })
+    return (response as { items?: Storyboard[] }).items || []
+  },
+
+  generateStoryboardWithAI: async (payload: {
+    project_id: string
+    name?: string
+    custom_prompt?: string
+    user_custom_prompt?: string
+    duration_ratio?: number
+    scene_align?: boolean
+    subtitle_align?: boolean
+    golden_opening?: boolean
+    aspect_ratio?: '9:16' | '16:9'
+    max_shots?: number
+    narration_max_chars?: number
+    model_name?: string
+    voice_style?: string
+    auto_render?: boolean
+  }): Promise<Storyboard> => {
+    return api.post('/storyboards/ai-generate', payload)
+  },
+
+  updateStoryboard: async (
+    storyboardId: string,
+    updates: {
+      name?: string
+      description?: string
+      shots?: StoryboardShot[]
+      config?: StoryboardConfig
+    }
+  ): Promise<Storyboard> => {
+    return api.put(`/storyboards/${storyboardId}`, updates)
+  },
+
+  deleteStoryboard: async (storyboardId: string): Promise<void> => {
+    await api.delete(`/storyboards/${storyboardId}`)
+  },
+
+  getStoryboard: async (storyboardId: string): Promise<Storyboard> => {
+    return api.get(`/storyboards/${storyboardId}`)
+  },
+
+  renderStoryboard: async (
+    storyboardId: string,
+    sync = false,
+    withNarration = false
+  ): Promise<Storyboard> => {
+    return api.post(`/storyboards/${storyboardId}/render`, null, {
+      params: {
+        ...(sync ? { sync: true } : {}),
+        ...(withNarration ? { with_narration: true } : {}),
+      },
+    })
+  },
+
+  getStoryboardVideoUrl: (projectId: string, storyboardId: string): string => {
+    return apiUrl(`/files/projects/${projectId}/storyboards/${storyboardId}`)
+  },
+
+  getStoryboardShotThumbnailUrl: (
+    projectId: string,
+    storyboardId: string,
+    shotId: string
+  ): string => {
+    return apiUrl(
+      `/files/projects/${projectId}/storyboards/${storyboardId}/shots/${shotId}/thumbnail`
+    )
+  },
+
+  downloadStoryboard: async (projectId: string, storyboardId: string): Promise<Blob> => {
+    return api.get(`/files/projects/${projectId}/storyboards/${storyboardId}`, {
+      responseType: 'blob',
+    })
+  },
+
+  setupStoryboardProject: async (formData: FormData): Promise<{
+    project_id: string
+    source_count: number
+    items: StoryboardVideoSource[]
+  }> => {
+    return api.post('/storyboards/setup-project', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  getStoryboardVideoSources: async (
+    projectId: string
+  ): Promise<{ project_id: string; source_count: number; items: StoryboardVideoSource[] }> => {
+    return api.get(`/storyboards/projects/${projectId}/sources`)
+  },
+
+  appendStoryboardVideos: async (
+    projectId: string,
+    files: File[]
+  ): Promise<{ project_id: string; source_count: number; items: StoryboardVideoSource[] }> => {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('video_files', file))
+    return api.post(`/storyboards/projects/${projectId}/videos`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  deleteStoryboardVideoSource: async (
+    projectId: string,
+    sourceId: string
+  ): Promise<{ project_id: string; source_count: number; items: StoryboardVideoSource[] }> => {
+    return api.delete(`/storyboards/projects/${projectId}/sources/${sourceId}`)
+  },
+
+  uploadStoryboardSubtitle: async (
+    projectId: string,
+    srtFile: File
+  ): Promise<{ project_id: string; subtitle_path: string }> => {
+    const formData = new FormData()
+    formData.append('srt_file', srtFile)
+    return api.post(`/storyboards/projects/${projectId}/subtitle`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  extractStoryboardNarrations: async (storyboardId: string): Promise<Storyboard> => {
+    return api.post(`/storyboards/${storyboardId}/extract-narrations`)
+  },
+
+  batchTranslateStoryboard: async (
+    storyboardId: string,
+    targetLanguage = 'en'
+  ): Promise<Storyboard> => {
+    return api.post(`/storyboards/${storyboardId}/batch-translate`, {
+      target_language: targetLanguage,
+      replace: true,
+    })
+  },
+
+  batchReplaceStoryboardText: async (
+    storyboardId: string,
+    findText: string,
+    replaceText: string
+  ): Promise<Storyboard> => {
+    return api.post(`/storyboards/${storyboardId}/batch-replace`, {
+      find_text: findText,
+      replace_text: replaceText,
+    })
+  },
+
+  prepareStoryboardUpload: async (
+    storyboardId: string
+  ): Promise<{ clip_id: string; title: string }> => {
+    return api.post(`/storyboards/${storyboardId}/export-clip`)
   },
 
   // 生成项目缩略图

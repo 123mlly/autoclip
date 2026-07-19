@@ -2,6 +2,7 @@ import { } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { Layout } from 'antd'
 import HomePage from './pages/HomePage'
+import StoryboardPage from './pages/StoryboardPage'
 import ProjectDetailPage from './pages/ProjectDetailPage'
 import SettingsPage from './pages/SettingsPage'
 import Header from './components/Header'
@@ -17,6 +18,7 @@ function App() {
       <Content>
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/storyboard" element={<StoryboardPage />} />
           <Route path="/project/:id" element={<ProjectDetailPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>

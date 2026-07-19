@@ -387,6 +387,127 @@ async def get_project_collection_video(
         logger.error(f"获取项目合集视频失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取项目合集视频失败: {str(e)}")
 
+
+@router.get("/projects/{project_id}/montages/{montage_id}")
+async def get_project_montage_video(
+    project_id: str,
+    montage_id: str,
+    db: Session = Depends(get_db),
+):
+    """获取混剪成片（支持在线播放与下载）。"""
+    try:
+        from ...models.montage import Montage
+
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="项目不存在")
+
+        montage = db.query(Montage).filter(Montage.id == montage_id).first()
+        if not montage:
+            raise HTTPException(status_code=404, detail="混剪不存在")
+        if str(montage.project_id) != project_id:
+            raise HTTPException(status_code=403, detail="混剪不属于该项目")
+        if not montage.export_path:
+            raise HTTPException(status_code=404, detail="混剪尚未渲染")
+
+        file_path = Path(montage.export_path)
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="混剪文件不存在")
+
+        return FileResponse(
+            path=str(file_path),
+            filename=f"montage_{montage_id}.mp4",
+            media_type="video/mp4",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "public, max-age=3600",
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("获取混剪视频失败: %s", e)
+        raise HTTPException(status_code=500, detail=f"获取混剪视频失败: {str(e)}")
+
+
+@router.get("/projects/{project_id}/storyboards/{storyboard_id}")
+async def get_project_storyboard_video(
+    project_id: str,
+    storyboard_id: str,
+    db: Session = Depends(get_db),
+):
+    """获取解说分镜成片。"""
+    try:
+        from ...models.storyboard import Storyboard
+
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="项目不存在")
+
+        storyboard = db.query(Storyboard).filter(Storyboard.id == storyboard_id).first()
+        if not storyboard:
+            raise HTTPException(status_code=404, detail="分镜不存在")
+        if str(storyboard.project_id) != project_id:
+            raise HTTPException(status_code=403, detail="分镜不属于该项目")
+        if not storyboard.export_path:
+            raise HTTPException(status_code=404, detail="分镜尚未渲染")
+
+        file_path = Path(storyboard.export_path)
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="分镜文件不存在")
+
+        return FileResponse(
+            path=str(file_path),
+            filename=f"storyboard_{storyboard_id}.mp4",
+            media_type="video/mp4",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "public, max-age=3600",
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("获取分镜视频失败: %s", e)
+        raise HTTPException(status_code=500, detail=f"获取分镜视频失败: {str(e)}")
+
+
+@router.get("/projects/{project_id}/storyboards/{storyboard_id}/shots/{shot_id}/thumbnail")
+async def get_storyboard_shot_thumbnail(
+    project_id: str,
+    storyboard_id: str,
+    shot_id: str,
+    db: Session = Depends(get_db),
+):
+    """获取分镜镜头缩略图。"""
+    try:
+        from ...models.storyboard import Storyboard
+
+        storyboard = db.query(Storyboard).filter(Storyboard.id == storyboard_id).first()
+        if not storyboard or str(storyboard.project_id) != project_id:
+            raise HTTPException(status_code=404, detail="分镜不存在")
+
+        shots = storyboard.shots or []
+        shot = next((s for s in shots if str(s.get("id")) == shot_id), None)
+        if not shot or not shot.get("thumbnail_path"):
+            raise HTTPException(status_code=404, detail="缩略图不存在")
+
+        file_path = Path(shot["thumbnail_path"])
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="缩略图文件不存在")
+
+        return FileResponse(
+            path=str(file_path),
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("获取分镜缩略图失败: %s", e)
+        raise HTTPException(status_code=500, detail=f"获取分镜缩略图失败: {str(e)}")
+
+
 @router.get("/projects/{project_id}/storage-info")
 async def get_project_storage_info(
     project_id: str,

@@ -5,7 +5,7 @@
 
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, asc
+from sqlalchemy import desc, asc, func, or_
 from pathlib import Path
 from .base import BaseRepository
 from ..models.project import Project, ProjectStatus, ProjectType
@@ -187,6 +187,18 @@ class ProjectRepository(BaseRepository[Project]):
                 if isinstance(project_type, str):
                     project_type = ProjectType(project_type)
                 query = query.filter(self.model.project_type == project_type)
+
+            if filters.get("exclude_storyboard"):
+                storyboard_flag = func.json_extract(
+                    self.model.processing_config, "$.storyboard_only"
+                )
+                query = query.filter(
+                    or_(
+                        self.model.processing_config.is_(None),
+                        storyboard_flag.is_(None),
+                        storyboard_flag == 0,
+                    )
+                )
 
         total = query.count()
         items = (

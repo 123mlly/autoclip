@@ -8,7 +8,8 @@ import {
   message,
   Pagination,
 } from 'antd'
-import { useNavigate } from 'react-router-dom'
+import { RightOutlined, VideoCameraOutlined } from '@ant-design/icons'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import ProjectCard from '../components/ProjectCard'
 import FileUpload from '../components/FileUpload'
 import BilibiliDownload from '../components/BilibiliDownload'
@@ -31,9 +32,14 @@ function isActiveProjectStatus(status: string | undefined): boolean {
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { projects, setProjects, deleteProject, loading, setLoading } = useProjectStore()
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [activeTab, setActiveTab] = useState<'upload' | 'bilibili'>('upload')
+  const initialTab = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState<'upload' | 'bilibili'>(() => {
+    if (initialTab === 'bilibili') return 'bilibili'
+    return 'upload'
+  })
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [pagination, setPagination] = useState<ProjectPagination>({
@@ -45,11 +51,18 @@ const HomePage: React.FC = () => {
     has_prev: false,
   })
 
+  useEffect(() => {
+    if (searchParams.get('tab') === 'storyboard') {
+      navigate('/storyboard', { replace: true })
+    }
+  }, [navigate, searchParams])
+
   const listQuery = useMemo<GetProjectsParams>(
     () => ({
       page: currentPage,
       size: pageSize,
       status: statusFilter,
+      exclude_storyboard: true,
     }),
     [currentPage, pageSize, statusFilter]
   )
@@ -86,6 +99,7 @@ const HomePage: React.FC = () => {
           page: overrides?.page ?? currentPage,
           size: overrides?.size ?? pageSize,
           status: overrides?.status ?? statusFilter,
+          exclude_storyboard: true,
         })
         setProjects(result.items || [])
         setPagination(result.pagination)
@@ -175,13 +189,23 @@ const HomePage: React.FC = () => {
     setCurrentPage(1)
   }
 
+  const handleTabChange = (tab: 'upload' | 'bilibili') => {
+    setActiveTab(tab)
+    if (tab === 'upload') {
+      searchParams.delete('tab')
+    } else {
+      searchParams.set('tab', tab)
+    }
+    setSearchParams(searchParams, { replace: true })
+  }
+
   return (
     <Layout style={{ minHeight: '100vh', background: 'transparent' }}>
       <Content style={{ padding: '40px 24px', position: 'relative' }}>
         <div style={{ maxWidth: 1600, margin: '0 auto', position: 'relative', zIndex: 1 }}>
           <div
             style={{
-              marginBottom: 48,
+              marginBottom: 24,
               marginTop: 8,
               display: 'flex',
               justifyContent: 'center',
@@ -198,13 +222,13 @@ const HomePage: React.FC = () => {
               <div className="tab-switch" style={{ marginBottom: 20 }}>
                 <button
                   className={activeTab === 'bilibili' ? 'active' : ''}
-                  onClick={() => setActiveTab('bilibili')}
+                  onClick={() => handleTabChange('bilibili')}
                 >
                   链接导入
                 </button>
                 <button
                   className={activeTab === 'upload' ? 'active' : ''}
-                  onClick={() => setActiveTab('upload')}
+                  onClick={() => handleTabChange('upload')}
                 >
                   文件导入
                 </button>
@@ -224,6 +248,33 @@ const HomePage: React.FC = () => {
                 )}
               </div>
             </div>
+          </div>
+
+          <div
+            className="storyboard-entry-card"
+            role="button"
+            tabIndex={0}
+            onClick={() => navigate('/storyboard')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                navigate('/storyboard')
+              }
+            }}
+          >
+            <div className="storyboard-entry-card-icon">
+              <VideoCameraOutlined />
+            </div>
+            <div className="storyboard-entry-card-body">
+              <div className="storyboard-entry-card-title">AI 混剪</div>
+              <div className="storyboard-entry-card-desc">
+                独立工作室：上传视频 + 字幕，AI 分镜表，编辑旁白，导出成片
+              </div>
+            </div>
+            <span className="storyboard-entry-card-action">
+              进入工作室
+              <RightOutlined />
+            </span>
           </div>
 
           <div className="studio-panel" style={{ padding: 32, marginBottom: 32 }}>

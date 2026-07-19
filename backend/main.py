@@ -48,6 +48,8 @@ async def startup_event():
     # 导入所有模型以确保表被创建
     from .models.bilibili import BilibiliAccount, UploadRecord
     from .models.youtube import YouTubeAccount, YouTubeUploadRecord
+    from .models.montage import Montage  # noqa: F401
+    from .models.storyboard import Storyboard  # noqa: F401
     Base.metadata.create_all(bind=engine)
     logger.info("数据库表创建完成")
     

@@ -1,6 +1,6 @@
 # AutoClip
 
-AI-powered long-form video clipping: import from **Bilibili / YouTube / Douyin links** or **local files**, analyze transcripts with an LLM, auto-cut clips and themed collections, refine by subtitle lines, and publish to Bilibili or YouTube.
+AI-powered long-form video clipping: import from **Bilibili / YouTube / Douyin links** or **local files**, analyze transcripts with an LLM, auto-cut clips and themed collections; supports **AI storyboard montage** (shots + narration + export), in-project **manual montage**, subtitle-based editing, and publishing to Bilibili or YouTube.
 
 [![Python](https://img.shields.io/badge/Python-3.10+-green?style=flat&logo=python)](https://python.org)
 [![React](https://img.shields.io/badge/React-18-blue?style=flat&logo=react)](https://reactjs.org)
@@ -20,6 +20,8 @@ AI-powered long-form video clipping: import from **Bilibili / YouTube / Douyin l
 | File import | Upload a local video (optional SRT); local ASR (default **faster-whisper**) if no subtitles |
 | AI pipeline | Outline → timestamps → scoring → titles → clustering → FFmpeg cuts |
 | Clips & collections | Preview/download clips; AI collections; manual create & drag reorder |
+| **AI montage** | Upload source video → AI storyboard (shots + narration + timeline) → edit → export (with/without burned-in narration) → publish |
+| Project montage | Drag clips on a timeline inside a project; transitions, BGM, 9:16 / 16:9 output |
 | Subtitle editing | Delete lines from the transcript and re-export the clip |
 | Publishing | Upload to Bilibili (cookie / password / QR) or YouTube (Google OAuth) |
 | Multi-LLM | Qwen (DashScope), OpenAI, Gemini, SiliconFlow via Settings |
@@ -199,11 +201,24 @@ See `env.example` for processing tunables (chunk size, score threshold, etc.).
 
 ## Typical workflow
 
+### Long-form clipping (default)
+
 1. On the home page, use **Link import** or **File import** and pick a category  
 2. Processing starts in the background (Celery); watch progress on the project page  
 3. Review **clips** and **collections**; edit titles and reorder as needed  
 4. Use **subtitle editing** to refine a clip  
 5. **Publish** to Bilibili or YouTube after linking accounts in Settings  
+
+### AI montage
+
+1. Open **AI montage** from the home page (or visit `/storyboard`)  
+2. Upload MP4 (SRT recommended; ASR runs automatically if missing)  
+3. Configure model, narration style, duration ratio, shot count, etc., then **Generate storyboard**  
+4. Edit narration per shot; batch translate/replace or fill from source subtitles  
+5. **Export video**: silent cut, or **with burned-in narration** (white text + black stroke, no background bar; Pillow + FFmpeg overlay, no libass required)  
+6. After export, **Publish** to Bilibili / YouTube (same account setup as clip uploads)  
+
+Configure AI models, Bilibili accounts, and YouTube OAuth in Settings.
 
 ---
 
@@ -242,7 +257,9 @@ Base path: `/api/v1` (interactive docs at `/docs`)
 | Clips / collections | `/clips`, `/collections` | CRUD, titles, reorder |
 | Import | `/bilibili`, `/youtube`, `/douyin` | Parse & download |
 | Subtitles | `/subtitle-editor` | Preview & apply line edits |
-| Publish | `/upload`, `/youtube-upload` | Bilibili / YouTube upload |
+| **AI montage** | `/storyboards` | Storyboard AI, edit, render, upload prep |
+| **Project montage** | `/montages` | Timeline, BGM, render |
+| Publish | `/upload`, `/youtube-upload` | Bilibili / YouTube (incl. AI montage exports) |
 | Progress | `/progress`, `/simple-progress` | Polling |
 | Settings | `/settings` | LLM and related config |
 
@@ -271,7 +288,10 @@ The default Docker image is CPU-oriented; the first run downloads models. With N
 First builds pull PyTorch and other large deps. If apt returns `502` or cannot reach the mirror, retry later or change `DEBIAN_MIRROR` in the Dockerfile (e.g. `mirrors.tuna.tsinghua.edu.cn`).
 
 **Backend code changes not applied in Docker?**  
-Prod images bake in the code—rebuild: `docker compose build autoclip && docker compose up -d`. For hot reload use `./docker-start.sh dev` / `docker-start.bat dev`.
+Prod images bake in the code—rebuild: `docker compose up -d --build`. For hot reload use `./docker-start.sh dev` / `docker-start.bat dev`. Restart `celery-worker` after task code changes (pipeline, AI montage render, uploads).
+
+**AI montage narration export?**  
+This burns **subtitles**, not TTS voiceover. Narration is rendered with Pillow to a transparent PNG and overlaid via FFmpeg `overlay`, so builds without libass/drawtext (e.g. default Homebrew FFmpeg) still work. Use **Publish** in the storyboard toolbar after export.
 
 **YouTube / Douyin download fails?**  
 - **YouTube**: yt-dlp often needs login cookies. In Docker, upload a `cookies.txt` from youtube.com on the link-import page → `data/cookies/youtube.txt`.

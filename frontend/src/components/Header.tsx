@@ -1,6 +1,10 @@
 import React from 'react'
 import { Layout, Button } from 'antd'
-import { SettingOutlined, HomeOutlined } from '@ant-design/icons'
+import {
+  SettingOutlined,
+  HomeOutlined,
+  VideoCameraOutlined,
+} from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import logoUrl from '../assets/logo.svg'
 
@@ -9,7 +13,10 @@ const { Header: AntHeader } = Layout
 const Header: React.FC = () => {
   const navigate = useNavigate()
   const location = useLocation()
-  const isHomePage = location.pathname === '/'
+  const pathname = location.pathname
+  const isHomePage = pathname === '/'
+  const isStoryboardPage = pathname === '/storyboard'
+  const showBackHome = !isHomePage && !isStoryboardPage
 
   return (
     <AntHeader
@@ -51,8 +58,27 @@ const Header: React.FC = () => {
         </span>
       </div>
 
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Button
+          type={isHomePage ? 'primary' : 'text'}
+          icon={<HomeOutlined />}
+          onClick={() => navigate('/')}
+          style={{ height: 40, padding: '0 16px' }}
+        >
+          首页
+        </Button>
+        <Button
+          type={isStoryboardPage ? 'primary' : 'text'}
+          icon={<VideoCameraOutlined />}
+          onClick={() => navigate('/storyboard')}
+          style={{ height: 40, padding: '0 16px' }}
+        >
+          AI 混剪
+        </Button>
+      </div>
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        {!isHomePage && (
+        {showBackHome && (
           <Button
             type="primary"
             icon={<HomeOutlined />}

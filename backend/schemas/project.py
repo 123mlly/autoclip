@@ -92,3 +92,7 @@ class ProjectFilter(BaseSchema):
     status: Optional[ProjectStatus] = Field(default=None, description="Filter by status")
     project_type: Optional[ProjectType] = Field(default=None, description="Filter by project type")
     search: Optional[str] = Field(default=None, description="Search in name and description")
+    exclude_storyboard: Optional[bool] = Field(
+        default=None,
+        description="Exclude storyboard-only projects from results",
+    )

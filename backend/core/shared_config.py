@@ -103,7 +103,9 @@ PROMPT_FILES = {
     "recommendation": PROMPT_DIR / "推荐理由.txt",
     "title": PROMPT_DIR / "标题生成.txt",
     "clustering": PROMPT_DIR / "主题聚类.txt",
-    "collection_title": PROMPT_DIR / "collection_title.txt"
+    "collection_title": PROMPT_DIR / "collection_title.txt",
+    "montage": PROMPT_DIR / "混剪编排.txt",
+    "storyboard": PROMPT_DIR / "解说分镜.txt",
 }
 
 # API配置

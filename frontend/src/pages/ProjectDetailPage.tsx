@@ -10,12 +10,16 @@ import {
   Spin, 
   Empty,
   message,
-  Radio
+  Radio,
+  Tabs,
 } from 'antd'
 import { 
   ArrowLeftOutlined, 
   PlayCircleOutlined,
-  PlusOutlined
+  PlusOutlined,
+  ScissorOutlined,
+  AppstoreOutlined,
+  VideoCameraOutlined,
 } from '@ant-design/icons'
 import { useProjectStore, Project, Clip } from '../store/useProjectStore'
 import { projectApi } from '../services/api'
@@ -23,6 +27,7 @@ import ClipCard from '../components/ClipCard'
 import CollectionCard from '../components/CollectionCard'
 import CollectionPreviewModal from '../components/CollectionPreviewModal'
 import CreateCollectionModal from '../components/CreateCollectionModal'
+import MontageTab from '../components/MontageTab'
 import { useCollectionVideoDownload } from '../hooks/useCollectionVideoDownload'
 import { useClipUploadStatus } from '../hooks/useClipUploadStatus'
 import { ProjectTaskManager } from '../components/ProjectTaskManager'
@@ -52,6 +57,7 @@ const ProjectDetailPage: React.FC = () => {
   const [statusLoading, setStatusLoading] = useState(false)
   const [showCreateCollection, setShowCreateCollection] = useState(false)
   const [sortBy, setSortBy] = useState<'time' | 'score'>('score')
+  const [activeTab, setActiveTab] = useState<'clips' | 'collections' | 'montage'>('clips')
   const [showCollectionDetail, setShowCollectionDetail] = useState(false)
   const [selectedCollection, setSelectedCollection] = useState<any>(null)
   const { generateAndDownloadCollectionVideo } = useCollectionVideoDownload()
@@ -116,6 +122,7 @@ const ProjectDetailPage: React.FC = () => {
       setShowCollectionDetail(false)
       setSelectedCollection(null)
       setSortBy('score')
+      setActiveTab('clips')
     }
 
     let cancelled = false
@@ -394,217 +401,216 @@ const ProjectDetailPage: React.FC = () => {
 
       {/* 主要内容 */}
       {currentProject.status === 'completed' ? (
-        <div>
-          {/* AI合集横向滚动区域 */}
-          {currentProject.collections && currentProject.collections.length > 0 && (
-            <Card style={{ marginBottom: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <div>
-                  <Title level={4} style={{ margin: 0 }}>AI推荐合集</Title>
-                  <Text type="secondary">
-                    AI 已为您推荐了 {currentProject.collections.length} 个主题合集
-                  </Text>
-                </div>
-                <Button 
-                  type="primary" 
-                  icon={<PlusOutlined />}
-                  onClick={() => setShowCreateCollection(true)}
+        <Tabs
+          activeKey={activeTab}
+          onChange={(key) => setActiveTab(key as 'clips' | 'collections' | 'montage')}
+          items={[
+            {
+              key: 'clips',
+              label: (
+                <span>
+                  <VideoCameraOutlined /> 切片
+                </span>
+              ),
+              children: (
+                <Card
                   style={{
-                    borderRadius: '8px',
-                    background: '#0e7c66',
-                    border: 'none',
-                    fontWeight: 500,
-                    height: '40px',
-                    padding: '0 20px',
-                    fontSize: '14px'
+                    borderRadius: '16px',
+                    border: '1px solid #d5dde6',
+                    background: '#ffffff',
                   }}
                 >
-                  创建合集
-                </Button>
-              </div>
-              
-              <div 
-                className="collections-scroll-container"
-                style={{ 
-                  display: 'flex',
-                  gap: '16px',
-                  overflowX: 'auto',
-                  paddingBottom: '8px'
-                }}
-              >
-                {currentProject.collections
-                  .sort((a, b) => {
-                    // 按创建时间倒序排列，最新的在前面
-                    const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
-                    const timeB = b.created_at ? new Date(b.created_at).getTime() : 0
-                    return timeB - timeA
-                  })
-                  .map((collection) => (
-                  <CollectionCard
-                    key={collection.id}
-                    collection={collection}
-                    clips={currentProject.clips || []}
-                    onView={handleViewCollection}
-                    onUpdate={(collectionId, updates) => 
-                      updateCollection(currentProject.id, collectionId, updates)
-                    }
-                    onGenerateVideo={async (collectionId) => {
-                      const collection = currentProject.collections?.find(c => c.id === collectionId)
-                      if (collection) {
-                        await generateAndDownloadCollectionVideo(
-                          currentProject.id, 
-                          collectionId, 
-                          collection.collection_title
-                        )
-                      }
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      marginBottom: '24px',
                     }}
-                    onDelete={handleDeleteCollection}
-                  />
-                ))}
-              </div>
-            </Card>
-          )}
-          
-          {/* 视频片段区域 */}
-          <Card 
-            style={{
-              borderRadius: '16px',
-              border: '1px solid #d5dde6',
-              background: '#ffffff'
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
-              <div>
-                <Title level={4} style={{ margin: 0, color: '#14181f', fontWeight: 600 }}>视频片段</Title>
-                <Text type="secondary" style={{ color: '#6b7585', fontSize: '14px' }}>
-                  AI 已为您生成了 {currentProject.clips?.length || 0} 个精彩片段
-                </Text>
-              </div>
-              
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                {/* 排序控件 - 暗黑主题优化 */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <Text style={{ fontSize: '13px', color: '#6b7585', fontWeight: 500 }}>排序</Text>
-                  <Radio.Group
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                    size="small"
-                    buttonStyle="solid"
                   >
-                    <Radio.Button 
-                       value="time" 
-                       style={{ 
-                         fontSize: '13px',
-                         height: '32px',
-                         lineHeight: '30px',
-                         padding: '0 16px',
-                         background: sortBy === 'time' ? '#0e7c66' : '#f7f9fb',
-                         border: sortBy === 'time' ? '1px solid #0e7c66' : '1px solid #d5dde6',
-                         color: sortBy === 'time' ? '#ffffff' : '#6b7585',
-                         borderRadius: '6px 0 0 6px',
-                         fontWeight: sortBy === 'time' ? 600 : 400,
-                         boxShadow: sortBy === 'time' ? 'var(--shadow-sm)' : 'none',
-                         transition: 'all 0.2s ease'
-                       }}
-                     >
-                       时间
-                     </Radio.Button>
-                     <Radio.Button 
-                       value="score" 
-                       style={{ 
-                         fontSize: '13px',
-                         height: '32px',
-                         lineHeight: '30px',
-                         padding: '0 16px',
-                         background: sortBy === 'score' ? '#0e7c66' : '#f7f9fb',
-                         border: sortBy === 'score' ? '1px solid #0e7c66' : '1px solid #d5dde6',
-                         borderLeft: 'none',
-                         color: sortBy === 'score' ? '#ffffff' : '#6b7585',
-                         borderRadius: '0 6px 6px 0',
-                         fontWeight: sortBy === 'score' ? 600 : 400,
-                         boxShadow: sortBy === 'score' ? 'var(--shadow-sm)' : 'none',
-                         transition: 'all 0.2s ease'
-                       }}
-                     >
-                       评分
-                     </Radio.Button>
-                  </Radio.Group>
-                </div>
-                
-                <Space>
-                  {(!currentProject.collections || currentProject.collections.length === 0) && (
-                    <Button 
-                      type="primary" 
+                    <div>
+                      <Title level={4} style={{ margin: 0, color: '#14181f', fontWeight: 600 }}>
+                        视频片段
+                      </Title>
+                      <Text type="secondary" style={{ color: '#6b7585', fontSize: '14px' }}>
+                        AI 已为您生成了 {currentProject.clips?.length || 0} 个精彩片段
+                      </Text>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <Text style={{ fontSize: '13px', color: '#6b7585', fontWeight: 500 }}>
+                          排序
+                        </Text>
+                        <Radio.Group
+                          value={sortBy}
+                          onChange={(e) => setSortBy(e.target.value)}
+                          size="small"
+                          buttonStyle="solid"
+                        >
+                          <Radio.Button value="time">时间</Radio.Button>
+                          <Radio.Button value="score">评分</Radio.Button>
+                        </Radio.Group>
+                      </div>
+                    </div>
+                  </div>
+
+                  {currentProject.clips && currentProject.clips.length > 0 ? (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                        gap: '20px',
+                        padding: '8px 0',
+                      }}
+                    >
+                      {getSortedClips().map((clip) => (
+                        <ClipCard
+                          key={clip.id}
+                          clip={clip}
+                          projectId={currentProject.id}
+                          uploadStatus={clipUploadStatusMap[clip.id]}
+                          onUploadStatusRefresh={refreshClipUploadStatus}
+                          videoUrl={projectApi.getClipVideoUrl(
+                            currentProject.id,
+                            clip.id,
+                            clip.title || clip.generated_title
+                          )}
+                          onDownload={(clipId) => projectApi.downloadVideo(currentProject.id, clipId)}
+                          onClipUpdate={(clipId: string, updates: Partial<Clip>) => {
+                            if (currentProject) {
+                              const updatedProject = {
+                                ...currentProject,
+                                clips:
+                                  currentProject.clips?.map((c: Clip) =>
+                                    c.id === clipId ? { ...c, ...updates } : c
+                                  ) || [],
+                              }
+                              setCurrentProject(updatedProject)
+                            }
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        padding: '60px 0',
+                        textAlign: 'center',
+                        background: '#f7f9fb',
+                        borderRadius: '12px',
+                        border: '1px dashed #d5dde6',
+                      }}
+                    >
+                      <Empty
+                        description={
+                          <Text style={{ color: '#6b7585', fontSize: '14px' }}>暂无视频片段</Text>
+                        }
+                        image={<PlayCircleOutlined style={{ fontSize: '48px', color: '#b8c4d1' }} />}
+                      />
+                    </div>
+                  )}
+                </Card>
+              ),
+            },
+            {
+              key: 'collections',
+              label: (
+                <span>
+                  <AppstoreOutlined /> 合集
+                </span>
+              ),
+              children: (
+                <Card style={{ borderRadius: '16px', border: '1px solid #d5dde6' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '16px',
+                    }}
+                  >
+                    <div>
+                      <Title level={4} style={{ margin: 0 }}>
+                        AI 推荐合集
+                      </Title>
+                      <Text type="secondary">
+                        AI 已为您推荐了 {currentProject.collections?.length || 0} 个主题合集
+                      </Text>
+                    </div>
+                    <Button
+                      type="primary"
                       icon={<PlusOutlined />}
                       onClick={() => setShowCreateCollection(true)}
-                      style={{
-                        borderRadius: '8px',
-                        background: '#0e7c66',
-                        border: 'none',
-                        fontWeight: 500,
-                        height: '40px',
-                        padding: '0 20px',
-                        fontSize: '14px'
-                      }}
                     >
                       创建合集
                     </Button>
+                  </div>
+
+                  {currentProject.collections && currentProject.collections.length > 0 ? (
+                    <div
+                      className="collections-scroll-container"
+                      style={{
+                        display: 'flex',
+                        gap: '16px',
+                        overflowX: 'auto',
+                        paddingBottom: '8px',
+                      }}
+                    >
+                      {currentProject.collections
+                        .sort((a, b) => {
+                          const timeA = a.created_at ? new Date(a.created_at).getTime() : 0
+                          const timeB = b.created_at ? new Date(b.created_at).getTime() : 0
+                          return timeB - timeA
+                        })
+                        .map((collection) => (
+                          <CollectionCard
+                            key={collection.id}
+                            collection={collection}
+                            clips={currentProject.clips || []}
+                            onView={handleViewCollection}
+                            onUpdate={(collectionId, updates) =>
+                              updateCollection(currentProject.id, collectionId, updates)
+                            }
+                            onGenerateVideo={async (collectionId) => {
+                              const collection = currentProject.collections?.find(
+                                (c) => c.id === collectionId
+                              )
+                              if (collection) {
+                                await generateAndDownloadCollectionVideo(
+                                  currentProject.id,
+                                  collectionId,
+                                  collection.collection_title
+                                )
+                              }
+                            }}
+                            onDelete={handleDeleteCollection}
+                          />
+                        ))}
+                    </div>
+                  ) : (
+                    <Empty description="暂无合集">
+                      <Button type="primary" onClick={() => setShowCreateCollection(true)}>
+                        创建合集
+                      </Button>
+                    </Empty>
                   )}
-                </Space>
-              </div>
-            </div>
-            
-            {currentProject.clips && currentProject.clips.length > 0 ? (
-              <div 
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-                  gap: '20px',
-                  padding: '8px 0'
-                }}
-              >
-                {getSortedClips().map((clip) => (
-                  <ClipCard
-                    key={clip.id}
-                    clip={clip}
-                    projectId={currentProject.id}
-                    uploadStatus={clipUploadStatusMap[clip.id]}
-                    onUploadStatusRefresh={refreshClipUploadStatus}
-                    videoUrl={projectApi.getClipVideoUrl(currentProject.id, clip.id, clip.title || clip.generated_title)}
-                    onDownload={(clipId) => projectApi.downloadVideo(currentProject.id, clipId)}
-                    onClipUpdate={(clipId: string, updates: Partial<Clip>) => {
-                      // 更新本地状态
-                      if (currentProject) {
-                        const updatedProject = {
-                          ...currentProject,
-                          clips: currentProject.clips?.map((c: Clip) => 
-                            c.id === clipId ? { ...c, ...updates } : c
-                          ) || []
-                        }
-                        setCurrentProject(updatedProject)
-                      }
-                    }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div style={{ 
-                padding: '60px 0',
-                textAlign: 'center',
-                background: '#f7f9fb',
-                borderRadius: '12px',
-                border: '1px dashed #d5dde6'
-              }}>
-                <Empty 
-                  description={
-                    <Text style={{ color: '#6b7585', fontSize: '14px' }}>暂无视频片段</Text>
-                  }
-                  image={<PlayCircleOutlined style={{ fontSize: '48px', color: '#b8c4d1' }} />}
-                />
-              </div>
-            )}
-          </Card>
-        </div>
+                </Card>
+              ),
+            },
+            {
+              key: 'montage',
+              label: (
+                <span>
+                  <ScissorOutlined /> 混剪
+                </span>
+              ),
+              children: (
+                <MontageTab projectId={currentProject.id} clips={currentProject.clips || []} />
+              ),
+            },
+          ]}
+        />
       ) : (
         <div>
           {/* 任务管理组件 */}

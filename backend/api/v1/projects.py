@@ -204,6 +204,9 @@ async def get_projects(
     status: Optional[str] = Query(None, description="Filter by status"),
     project_type: Optional[str] = Query(None, description="Filter by project type"),
     search: Optional[str] = Query(None, description="Search in name and description"),
+    exclude_storyboard: bool = Query(
+        False, description="Exclude storyboard-only projects (for clip homepage)"
+    ),
     project_service: ProjectService = Depends(get_project_service)
 ):
     """Get paginated projects with optional filtering."""
@@ -211,11 +214,12 @@ async def get_projects(
         pagination = PaginationParams(page=page, size=size)
         
         filters = None
-        if status or project_type or search:
+        if status or project_type or search or exclude_storyboard:
             filters = ProjectFilter(
                 status=status,
                 project_type=project_type,
-                search=search
+                search=search,
+                exclude_storyboard=exclude_storyboard or None,
             )
         
         return project_service.get_projects_paginated(pagination, filters)

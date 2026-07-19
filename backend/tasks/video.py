@@ -12,6 +12,53 @@ from ..core.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
+@shared_task(bind=True, name='backend.tasks.video.render_montage')
+def render_montage_task(self, montage_id: str) -> Dict[str, Any]:
+    """异步渲染混剪成片。"""
+    from ..core.database import SessionLocal
+    from ..services.montage_service import MontageService
+
+    logger.info("开始异步渲染混剪: %s", montage_id)
+    db = SessionLocal()
+    try:
+        service = MontageService(db)
+        montage = service.render_montage(montage_id)
+        return {
+            "success": True,
+            "montage_id": montage_id,
+            "status": montage.status.value if hasattr(montage.status, "value") else str(montage.status),
+        }
+    except Exception as e:
+        logger.error("混剪异步渲染失败 %s: %s", montage_id, e)
+        raise
+    finally:
+        db.close()
+
+
+@shared_task(bind=True, name='backend.tasks.video.render_storyboard')
+def render_storyboard_task(self, storyboard_id: str, with_narration: bool = False) -> Dict[str, Any]:
+    """异步渲染解说分镜成片。"""
+    from ..core.database import SessionLocal
+    from ..services.storyboard_service import StoryboardService
+
+    logger.info("开始异步渲染分镜: %s (with_narration=%s)", storyboard_id, with_narration)
+    db = SessionLocal()
+    try:
+        service = StoryboardService(db)
+        storyboard = service.render_storyboard(storyboard_id, with_narration=with_narration)
+        status = (
+            storyboard.status.value
+            if hasattr(storyboard.status, "value")
+            else str(storyboard.status)
+        )
+        return {"success": True, "storyboard_id": storyboard_id, "status": status}
+    except Exception as e:
+        logger.error("分镜异步渲染失败 %s: %s", storyboard_id, e)
+        raise
+    finally:
+        db.close()
+
+
 @shared_task(bind=True, name='backend.tasks.video.extract_video_clips')
 def extract_video_clips(self, project_id: str, clip_data: List[Dict[str, Any]]) -> Dict[str, Any]:
     """

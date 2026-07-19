@@ -314,6 +314,13 @@ class ProjectService(BaseService[Project, ProjectCreate, ProjectUpdate, ProjectR
                 if collection_count > 0:
                     self.db.query(Collection).filter(Collection.project_id == project_id).delete()
                     logger.info(f"删除项目 {project_id} 的 {collection_count} 个合集")
+
+                # 3.5 删除解说分镜
+                from ..models.storyboard import Storyboard
+                storyboard_count = self.db.query(Storyboard).filter(Storyboard.project_id == project_id).count()
+                if storyboard_count > 0:
+                    self.db.query(Storyboard).filter(Storyboard.project_id == project_id).delete()
+                    logger.info(f"删除项目 {project_id} 的 {storyboard_count} 个分镜")
                 
                 # 4. 删除项目记录
                 self.db.query(Project).filter(Project.id == project_id).delete()
