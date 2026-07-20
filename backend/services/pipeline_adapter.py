@@ -445,6 +445,7 @@ class PipelineAdapter:
                         duration = end_seconds - start_seconds
                         
                         # 创建切片记录
+                        clip_tags = clip_data.get('tags') if isinstance(clip_data.get('tags'), list) else []
                         clip = Clip(
                             id=f"{self.project_id}_{clip_data['id']}",
                             project_id=self.project_id,
@@ -457,10 +458,12 @@ class PipelineAdapter:
                             score=clip_data.get('final_score', 0),
                             recommendation_reason=clip_data.get('recommend_reason', ''),
                             status=ClipStatus.COMPLETED,
+                            tags=clip_tags,
                             clip_metadata={
                                 'outline': clip_data.get('outline', ''),
                                 'content': clip_data.get('content', []),
-                                'chunk_index': clip_data.get('chunk_index', 0)
+                                'chunk_index': clip_data.get('chunk_index', 0),
+                                'tags': clip_tags,
                             },
                             created_at=datetime.utcnow(),
                             updated_at=datetime.utcnow()

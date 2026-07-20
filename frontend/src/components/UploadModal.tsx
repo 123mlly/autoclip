@@ -39,6 +39,8 @@ interface UploadModalProps {
   projectId: string
   clipIds: string[]
   clipTitles: string[]
+  /** AI 生成的切片标签，打开弹窗时预填 */
+  clipTags?: string[]
   onSuccess?: () => void
   onTaskCreated?: () => void
 }
@@ -58,6 +60,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
   projectId,
   clipIds,
   clipTitles,
+  clipTags = [],
   onSuccess,
   onTaskCreated,
 }) => {
@@ -72,15 +75,21 @@ const UploadModal: React.FC<UploadModalProps> = ({
   const [uploadRecordId, setUploadRecordId] = useState<string>('')
   const [pollingInterval, setPollingInterval] = useState<ReturnType<typeof setInterval> | null>(null)
 
-  const initialValues = {
-    title: clipTitles.length === 1 ? clipTitles[0] : `${clipTitles[0]} 等${clipIds.length}个视频`,
-    description: '',
-    tags: [],
-    partition_id: 21,
-    category_id: '22',
-    privacy_status: 'private',
-    account_id: undefined
-  }
+  const normalizedTags = Array.from(new Set((clipTags || []).filter(Boolean))).slice(0, 12)
+  const baseTitle =
+    clipTitles.length === 1 ? clipTitles[0] : `${clipTitles[0] || '视频'} 等${clipIds.length}个视频`
+  const youtubeTitleWithHashtags = (() => {
+    if (platform !== 'youtube') return baseTitle
+    let title = baseTitle || ''
+    for (const tag of normalizedTags.slice(0, 5)) {
+      const ht = `#${String(tag).replace(/^#/, '').replace(/\s+/g, '')}`
+      if (!ht || title.toLowerCase().includes(ht.toLowerCase())) continue
+      const next = `${title} ${ht}`.trim()
+      if (next.length > 100) break
+      title = next
+    }
+    return title.slice(0, 100)
+  })()
 
   const [bilibiliAccounts, setBilibiliAccounts] = useState<any[]>([])
   const [youtubeAccounts, setYoutubeAccounts] = useState<YouTubeAccount[]>([])
@@ -101,13 +110,19 @@ const UploadModal: React.FC<UploadModalProps> = ({
       })
   }, [visible])
 
+  // 仅在打开弹窗或切换平台时重置，避免 clipTags 引用变化冲掉用户已填内容
   useEffect(() => {
-    if (visible) {
-      form.setFieldsValue({
-        ...initialValues,
-        account_id: undefined,
-      })
-    }
+    if (!visible) return
+    form.setFieldsValue({
+      title: youtubeTitleWithHashtags,
+      description: '',
+      tags: normalizedTags,
+      partition_id: 21,
+      category_id: '22',
+      privacy_status: 'private',
+      account_id: undefined,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only reset on open / platform change
   }, [visible, platform])
 
   const accounts = platform === 'bilibili' ? bilibiliAccounts : youtubeAccounts
@@ -389,7 +404,15 @@ const UploadModal: React.FC<UploadModalProps> = ({
         <Form
           form={form}
           layout="vertical"
-          initialValues={initialValues}
+          initialValues={{
+            title: youtubeTitleWithHashtags,
+            description: '',
+            tags: normalizedTags,
+            partition_id: 21,
+            category_id: '22',
+            privacy_status: 'private',
+            account_id: undefined,
+          }}
           onFinish={handleSubmit}
         >
           <Form.Item label="发布平台">
@@ -509,7 +532,13 @@ const UploadModal: React.FC<UploadModalProps> = ({
           <Form.Item
             label="标签"
             name="tags"
-            extra={<span style={{ color: 'var(--muted)' }}>最多添加10个标签，按回车确认</span>}
+            extra={
+              <span style={{ color: 'var(--muted)' }}>
+                {platform === 'youtube'
+                  ? 'YouTube：标签会优先追加到标题 hashtag（最多约 5 个，受 100 字限制）；最多 10 个，回车确认'
+                  : '最多添加10个标签，按回车确认'}
+              </span>
+            }
           >
             <Select
               mode="tags"

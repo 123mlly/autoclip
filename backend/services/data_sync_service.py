@@ -221,8 +221,11 @@ class DataSyncService:
                         video_path = str(project_video_path)
                         logger.info(f"更新切片 {existing_clip.id} 的video_path: {video_path}")
                         existing_clip.video_path = video_path
-                        if existing_clip.tags is None:
-                            existing_clip.tags = []  # 确保tags是空列表而不是null
+                        clip_tags = clip_data.get('tags') or []
+                        if isinstance(clip_tags, list) and clip_tags:
+                            existing_clip.tags = clip_tags
+                        elif existing_clip.tags is None:
+                            existing_clip.tags = []
                         updated_count += 1
                         continue
                     
@@ -273,6 +276,7 @@ class DataSyncService:
                     video_path = str(project_video_path)
                     
                     # 创建切片记录
+                    clip_tags = clip_data.get('tags') if isinstance(clip_data.get('tags'), list) else []
                     clip = Clip(
                         project_id=project_id,
                         title=clip_data.get('generated_title', clip_data.get('title', clip_data.get('outline', ''))),
@@ -282,7 +286,7 @@ class DataSyncService:
                         duration=duration,
                         score=clip_data.get('final_score', 0.0),
                         video_path=video_path,
-                        tags=[],  # 确保tags是空列表而不是null
+                        tags=clip_tags,
                         clip_metadata=clip_data,
                         status=ClipStatus.COMPLETED
                     )
@@ -562,6 +566,7 @@ class DataSyncService:
                     continue
                 
                 # 创建新的clip记录
+                clip_tags = clip_data.get("tags") if isinstance(clip_data.get("tags"), list) else []
                 clip = Clip(
                     project_id=project_id,
                     title=clip_data.get("generated_title", ""),
@@ -574,13 +579,14 @@ class DataSyncService:
                     ),
                     score=clip_data.get("final_score", 0.0),
                     status=ClipStatus.COMPLETED,
-                    tags=[],
+                    tags=clip_tags,
                     clip_metadata={
                         "outline": clip_data.get("outline"),
                         "content": clip_data.get("content", []),
                         "recommend_reason": clip_data.get("recommend_reason"),
                         "chunk_index": clip_data.get("chunk_index"),
-                        "original_id": clip_data.get("id")
+                        "original_id": clip_data.get("id"),
+                        "tags": clip_tags,
                     }
                 )
                 

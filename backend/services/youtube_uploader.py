@@ -10,7 +10,7 @@ import os
 import secrets
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,115 @@ _oauth_pkce_memory: Dict[str, Tuple[float, str]] = {}
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
 SCOPES = [YOUTUBE_UPLOAD_SCOPE, YOUTUBE_READONLY_SCOPE]
+
+# YouTube snippet.tags 总字符上限约 500；标题最多 100 字，优先塞 hashtag
+_YOUTUBE_TAGS_CHAR_LIMIT = 500
+_YOUTUBE_TITLE_HASHTAG_LIMIT = 5
+_YOUTUBE_DESC_HASHTAG_LIMIT = 5
+
+
+def _normalize_tag_list(tags: Any) -> List[str]:
+    """Normalize tags from list / JSON string / comma-separated string."""
+    if not tags:
+        return []
+    if isinstance(tags, str):
+        try:
+            parsed = json.loads(tags)
+            if isinstance(parsed, list):
+                tags = parsed
+            else:
+                tags = [t.strip() for t in tags.split(",") if t.strip()]
+        except Exception:
+            tags = [t.strip() for t in tags.split(",") if t.strip()]
+    if not isinstance(tags, list):
+        return []
+
+    result: List[str] = []
+    for tag in tags:
+        if not isinstance(tag, str):
+            continue
+        cleaned = tag.strip().lstrip("#").strip()
+        if cleaned and cleaned not in result:
+            result.append(cleaned)
+    return result
+
+
+def _tag_to_hashtag(tag: str) -> str:
+    cleaned = tag.strip().lstrip("#").replace(" ", "")
+    return f"#{cleaned}" if cleaned else ""
+
+
+def _fit_tags_char_limit(tags: List[str], limit: int = _YOUTUBE_TAGS_CHAR_LIMIT) -> List[str]:
+    """Trim tags to YouTube's ~500 character budget (commas / quotes count)."""
+    result: List[str] = []
+    used = 0
+    for tag in tags:
+        extra = 2 if " " in tag else 0
+        cost = len(tag) + extra + (1 if result else 0)
+        if used + cost > limit:
+            break
+        result.append(tag)
+        used += cost
+    return result
+
+
+def _append_hashtags_to_text(
+    text: str,
+    tags: List[str],
+    *,
+    max_hashtags: int,
+    max_len: Optional[int] = None,
+) -> tuple[str, List[str]]:
+    """Append hashtags to text. Returns (new_text, tags_not_used)."""
+    existing = (text or "").rstrip()
+    existing_lower = existing.lower()
+    used_hashtags: List[str] = []
+    unused_tags: List[str] = []
+
+    for i, tag in enumerate(tags):
+        ht = _tag_to_hashtag(tag)
+        if not ht:
+            continue
+        if ht.lower() in existing_lower or ht in used_hashtags:
+            continue
+        if len(used_hashtags) >= max_hashtags:
+            unused_tags.extend(tags[i:])
+            break
+        candidate = f"{existing} {ht}".strip() if existing else ht
+        if max_len is not None and len(candidate) > max_len:
+            unused_tags.extend(tags[i:])
+            break
+        existing = candidate
+        existing_lower = existing.lower()
+        used_hashtags.append(ht)
+
+    if max_len is not None:
+        existing = existing[:max_len]
+    return existing, unused_tags
+
+
+def _append_hashtags_to_title(
+    title: str,
+    tags: List[str],
+    max_hashtags: int = _YOUTUBE_TITLE_HASHTAG_LIMIT,
+    max_len: int = 100,
+) -> tuple[str, List[str]]:
+    """Prefer putting hashtags in the title; return leftover tags."""
+    return _append_hashtags_to_text(
+        title, tags, max_hashtags=max_hashtags, max_len=max_len
+    )
+
+
+def _append_hashtags_to_description(
+    description: str,
+    tags: List[str],
+    max_hashtags: int = _YOUTUBE_DESC_HASHTAG_LIMIT,
+) -> str:
+    """Append leftover hashtags to description when they did not fit in title."""
+    text, _ = _append_hashtags_to_text(
+        description, tags, max_hashtags=max_hashtags, max_len=None
+    )
+    return text
 
 
 def get_youtube_oauth_config() -> Dict[str, str]:
@@ -187,24 +296,35 @@ class YouTubeUploader:
             creds = self._build_credentials()
             youtube = build("youtube", "v3", credentials=creds, cache_discovery=False)
 
-            title = (metadata.get("title") or path.stem)[:100]
-            description = metadata.get("description") or metadata.get("desc") or title
-            tags = metadata.get("tags") or []
-            if isinstance(tags, str):
-                try:
-                    tags = json.loads(tags)
-                except Exception:
-                    tags = [t.strip() for t in tags.split(",") if t.strip()]
+            raw_title = metadata.get("title") or path.stem
+            raw_description = metadata.get("description") or metadata.get("desc") or ""
+            tags = _normalize_tag_list(metadata.get("tags"))
+            # 发现力：hashtag 优先写入标题；放不下的再补到描述；snippet.tags 仍保留
+            title, leftover_tags = _append_hashtags_to_title(str(raw_title)[:100], tags)
+            description = _append_hashtags_to_description(
+                str(raw_description) if raw_description else "",
+                leftover_tags,
+            )
+            if not description.strip():
+                description = str(raw_title)
+            snippet_tags = _fit_tags_char_limit(tags)
             category_id = str(metadata.get("category_id") or "22")
             privacy = metadata.get("privacy_status") or "private"
             if privacy not in ("private", "unlisted", "public"):
                 privacy = "private"
 
+            logger.info(
+                "YouTube 元数据: title=%s leftover_to_desc=%s tags=%s",
+                title,
+                leftover_tags,
+                snippet_tags,
+            )
+
             body = {
                 "snippet": {
                     "title": title,
                     "description": description,
-                    "tags": tags[:500],
+                    "tags": snippet_tags,
                     "categoryId": category_id,
                 },
                 "status": {

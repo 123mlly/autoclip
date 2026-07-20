@@ -428,6 +428,8 @@ export const projectApi = {
         // 获取metadata中的内容
         const metadata = clip.clip_metadata || {}
         
+        const tagsFromDb = Array.isArray(clip.tags) ? clip.tags : []
+        const tagsFromMeta = Array.isArray(metadata.tags) ? metadata.tags : []
         return {
           id: clip.id,
           title: clip.title,
@@ -440,7 +442,8 @@ export const projectApi = {
           outline: metadata.outline || '',
           // 只使用metadata中的content，避免使用description（可能是转写文本）
           content: metadata.content || [],
-          chunk_index: metadata.chunk_index || 0
+          chunk_index: metadata.chunk_index || 0,
+          tags: tagsFromDb.length > 0 ? tagsFromDb : tagsFromMeta
         }
       })
       
@@ -493,7 +496,7 @@ export const projectApi = {
   },
 
   // 生成切片标题
-  generateClipTitle: async (clipId: string): Promise<{clip_id: string, generated_title: string, success: boolean}> => {
+  generateClipTitle: async (clipId: string): Promise<{clip_id: string, generated_title: string, tags?: string[], success: boolean}> => {
     return api.post(`/clips/${clipId}/generate-title`)
   },
 

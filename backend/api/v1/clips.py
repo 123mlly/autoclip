@@ -94,9 +94,10 @@ async def generate_clip_title(
             "recommend_reason": clip_metadata.get('recommend_reason', '')
         }]
         
-        # 调用LLM生成标题
+        # 调用LLM生成标题与标签
         from ...utils.llm_client import LLMClient
         from ...core.shared_config import PROMPT_FILES
+        from ...pipeline.step4_title import parse_title_entry
         
         llm_client = LLMClient()
         
@@ -113,14 +114,24 @@ async def generate_clip_title(
         # 解析LLM响应
         titles_map = llm_client.parse_json_response(raw_response)
         
-        if not isinstance(titles_map, dict) or clip_id not in titles_map:
+        if not isinstance(titles_map, dict):
             raise HTTPException(status_code=500, detail="LLM返回格式错误")
-        
-        generated_title = titles_map[clip_id]
+
+        entry = titles_map.get(clip_id)
+        if entry is None:
+            entry = titles_map.get(str(clip_id))
+        if entry is None and titles_map:
+            # 单条生成时偶发用 "1" 等简短 id 作为 key
+            entry = next(iter(titles_map.values()), None)
+
+        generated_title, tags = parse_title_entry(entry)
+        if not generated_title:
+            raise HTTPException(status_code=500, detail="LLM返回格式错误")
         
         return {
             "clip_id": clip_id,
             "generated_title": generated_title,
+            "tags": tags,
             "success": True
         }
         

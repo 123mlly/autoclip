@@ -1,10 +1,9 @@
 """
-Step 4: 标题生成 - 为高质量内容生成吸引人的标题
+Step 4: 标题生成 - 为高质量内容生成吸引人的标题与标签
 """
 import json
 import logging
-import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 from collections import defaultdict
 
@@ -14,6 +13,53 @@ from ..utils.text_processor import TextProcessor
 from ..core.shared_config import PROMPT_FILES, METADATA_DIR
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_TAG_LIMIT = 12
+
+
+def parse_title_entry(entry: Any, tag_limit: int = DEFAULT_TAG_LIMIT) -> Tuple[Optional[str], List[str]]:
+    """Parse LLM title response value into (title, tags).
+
+    Supports both legacy string values and new ``{title, tags}`` objects.
+    """
+    if isinstance(entry, str):
+        title = entry.strip() or None
+        return title, []
+
+    if isinstance(entry, dict):
+        raw_title = entry.get('title') or entry.get('generated_title')
+        title = raw_title.strip() if isinstance(raw_title, str) and raw_title.strip() else None
+
+        tags: List[str] = []
+        tags_raw = entry.get('tags') or []
+        if isinstance(tags_raw, list):
+            for tag in tags_raw:
+                if isinstance(tag, str) and tag.strip():
+                    cleaned = tag.strip().lstrip('#').strip()
+                    if cleaned and cleaned not in tags:
+                        tags.append(cleaned)
+        elif isinstance(tags_raw, str) and tags_raw.strip():
+            for tag in tags_raw.split(','):
+                cleaned = tag.strip().lstrip('#').strip()
+                if cleaned and cleaned not in tags:
+                    tags.append(cleaned)
+
+        return title, tags[:tag_limit]
+
+    return None, []
+
+
+def fallback_title_from_outline(outline: Any, clip_id: Any) -> str:
+    """Build a string fallback title from outline field."""
+    if isinstance(outline, dict):
+        title = outline.get('title')
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+        return f"片段_{clip_id}"
+    if outline:
+        return str(outline)
+    return f"片段_{clip_id}"
+
 
 class TitleGenerator:
     """标题生成器"""
@@ -35,7 +81,7 @@ class TitleGenerator:
     
     def generate_titles(self, high_score_clips: List[Dict]) -> List[Dict]:
         """
-        为高分切片生成标题 (新版：按块批量处理，并增加缓存)
+        为高分切片生成标题与标签 (按块批量处理)
         """
         if not high_score_clips:
             return []
@@ -83,18 +129,34 @@ class TitleGenerator:
 
                 for clip in chunk_clips:
                     clip_id = clip.get('id')
-                    generated_title = titles_map.get(clip_id)
-                    if generated_title and isinstance(generated_title, str):
+                    # LLM 有时用数字 key，做一次兼容查找
+                    entry = titles_map.get(clip_id)
+                    if entry is None and clip_id is not None:
+                        entry = titles_map.get(str(clip_id))
+                        if entry is None:
+                            try:
+                                entry = titles_map.get(int(clip_id))
+                            except (TypeError, ValueError):
+                                pass
+
+                    generated_title, tags = parse_title_entry(entry)
+                    if generated_title:
                         clip['generated_title'] = generated_title
-                        # 安全地获取outline标题用于日志显示
+                        clip['tags'] = tags
                         outline = clip.get('outline', {})
                         if isinstance(outline, dict):
-                            title = outline.get('title', '未知标题')
+                            outline_title = outline.get('title', '未知标题')
                         else:
-                            title = str(outline)
-                        logger.info(f"  > 为片段 {clip_id} ('{title[:20]}...') 生成标题: {generated_title}")
+                            outline_title = str(outline)
+                        logger.info(
+                            f"  > 为片段 {clip_id} ('{outline_title[:20]}...') "
+                            f"生成标题: {generated_title}, 标签: {tags}"
+                        )
                     else:
-                        clip['generated_title'] = clip.get('outline', f"片段_{clip_id}")  # 使用outline作为fallback
+                        clip['generated_title'] = fallback_title_from_outline(
+                            clip.get('outline'), clip_id
+                        )
+                        clip.setdefault('tags', [])
                         logger.warning(f"  > 未能为片段 {clip_id} 找到或解析标题，使用原始outline")
                 
                 all_clips_with_titles.extend(chunk_clips)

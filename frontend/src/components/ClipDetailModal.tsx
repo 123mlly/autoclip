@@ -224,10 +224,19 @@ const ClipDetailModal: React.FC<ClipDetailModalProps> = ({
                       评分: {(clip.final_score * 100).toFixed(0)}分
                     </Tag>
                   )}
-                  {clip.outline && (
+                  {typeof clip.outline === 'string' && clip.outline && (
                     <Tag color="purple">{clip.outline}</Tag>
                   )}
                 </Space>
+                {Array.isArray(clip.tags) && clip.tags.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <Space size={[4, 4]} wrap>
+                      {clip.tags.map((tag: string) => (
+                        <Tag key={tag} color="cyan">{tag}</Tag>
+                      ))}
+                    </Space>
+                  </div>
+                )}
               </div>
 
               {/* 操作按钮 */}

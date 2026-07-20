@@ -235,7 +235,7 @@ const ClipCard: React.FC<ClipCardProps> = ({
     }
     
     // 最后回退到outline（大纲）
-    if (clip.outline && clip.outline.trim()) {
+    if (typeof clip.outline === 'string' && clip.outline.trim()) {
       return clip.outline
     }
     
@@ -656,6 +656,7 @@ const ClipCard: React.FC<ClipCardProps> = ({
         projectId={projectId || ''}
         clipIds={[clip.id]}
         clipTitles={[clip.title || clip.generated_title || '视频片段']}
+        clipTags={clip.tags ?? undefined}
         onSuccess={() => {
           onUploadStatusRefresh?.()
         }}

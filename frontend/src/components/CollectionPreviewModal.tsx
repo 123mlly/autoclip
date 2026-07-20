@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { Modal, Row, Col, Button, Space, Typography, Tag, message, Popconfirm } from 'antd'
 import { PlayCircleOutlined, DeleteOutlined, MenuOutlined, CloseOutlined, LeftOutlined, RightOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import ReactPlayer from 'react-player'
@@ -60,6 +60,10 @@ const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
   const collectionClips = latestCollection ? 
     latestCollection.clip_ids.map(clipId => clips.find(clip => clip.id === clipId)).filter(Boolean) as Clip[] : []
   const currentClip = collectionClips[currentClipIndex]
+  const collectionUploadTags = useMemo(
+    () => Array.from(new Set(collectionClips.flatMap(clip => clip.tags || []))).slice(0, 12),
+    [collectionClips]
+  )
 
   useEffect(() => {
     if (visible && collectionClips.length > 0) {
@@ -543,6 +547,7 @@ const CollectionPreviewModal: React.FC<CollectionPreviewModalProps> = ({
         projectId={projectId}
         clipIds={collectionClips.map(clip => clip.id)}
         clipTitles={collectionClips.map(clip => clip.generated_title || clip.title || '视频片段')}
+        clipTags={collectionUploadTags}
         onSuccess={() => {
           // 投稿成功后可以刷新数据或显示提示
           console.log('合集投稿成功')

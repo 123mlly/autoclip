@@ -12,6 +12,7 @@ export interface Clip {
   outline: string
   content: string[]
   chunk_index?: number  // 添加缺失字段
+  tags?: string[]
 }
 
 export interface Collection {
